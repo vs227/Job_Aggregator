@@ -1,0 +1,30 @@
+from pydantic import BaseModel, EmailStr
+from typing import Optional
+
+class RegisterUser(BaseModel):
+    name: str
+    email: EmailStr
+    password:str
+
+class LoginUser(BaseModel):
+    email: EmailStr
+    password: str
+
+class JobsInput(BaseModel):
+    title: str
+    company: str
+    location: str
+    salary: int
+    job_type: str
+    job_url: str
+    source_id: str
+
+class SavedJob(BaseModel):
+    job_id: int
+
+
+class AlertPreference(BaseModel):
+    keyword: str
+    location: Optional[str] = None
+    min_salary: Optional[int] = None
+    email_enabled: bool = True
