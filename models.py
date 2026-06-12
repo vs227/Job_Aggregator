@@ -28,3 +28,15 @@ class AlertPreference(BaseModel):
     location: Optional[str] = None
     min_salary: Optional[int] = None
     email_enabled: bool = True
+
+class SearchJob(BaseModel):
+    keyword: Optional[str] = None
+    location: Optional[str] = None
+    company: Optional[str] = None
+    min_salary: Optional[int] = None
+    job_type: Optional[str] = None
+
+
+class SourceInput(BaseModel):
+    source_name: str
+    source_url: str
