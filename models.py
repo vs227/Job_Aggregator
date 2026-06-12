@@ -16,6 +16,7 @@ class JobsInput(BaseModel):
     location: str
     salary: Optional[int] = None
     job_type: str
+    description: Optional[str] = None
     job_url: str
     source_id: int
 

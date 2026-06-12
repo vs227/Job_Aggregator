@@ -57,3 +57,63 @@ def login(user: LoginUser):
         "access_token": token,
         "token_type": "bearer"
     }
+
+@app.post("/job_sources")
+def create_source(source: SourceInput, user_id: str = Depends(get_current_user)):
+    new_source = (supabase.table("job_sources").insert({"source_name": source.source_name, "source_url": source.source_url}).execute()
+    )
+
+    return {
+        "message": "Source created successfully",
+        "source": new_source.data[0]
+    }
+
+
+@app.post("/jobs")
+def create_job(job: JobsInput, user_id: str = Depends(get_current_user)):
+    new_job = (supabase.table("jobs").insert({"title": job.title, "company": job.company, "location": job.location, "salary": job.salary, "job_type": job.job_type, "description": job.description, "job_url": job.job_url, "source_id": job.source_id}).execute())
+
+    return {
+        "message": "Job created successfully",
+        "job": new_job.data[0]
+    }
+
+@app.get("/get_jobs")
+def get_jobs(user_id: str = Depends(get_current_user)):
+    jobs = supabase.table("jobs").select("*").execute()
+    return jobs.data
+
+
+@app.post("/search_jobs")
+def search_jobs(search: SearchJob, user_id: str = Depends(get_current_user)):
+    query = supabase.table("jobs").select("*")
+    
+    if search.keyword:
+        query = query.ilike("title", f"%{search.keyword}%")
+    
+    if search.location:
+        query = query.ilike("location", f"%{search.location}%")
+    
+    if search.company:
+        query = query.ilike("company", f"%{search.company}%")
+    
+    if search.job_type:
+        query = query.eq("job_type", search.job_type)
+    
+    jobs = query.execute()
+    results = jobs.data
+    
+    if search.min_salary:
+        filtered_results = []
+        for job in results:
+            job_salary = job.get("salary")
+            if job_salary is not None:
+                try:
+                    salary_int = int(job_salary)
+                    if salary_int >= search.min_salary:
+                        filtered_results.append(job)
+                except (ValueError, TypeError):
+                    pass
+        results = filtered_results
+    
+    return results
