@@ -2,7 +2,7 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional
 
 class RegisterUser(BaseModel):
-    name: str
+    username: str
     email: EmailStr
     password:str
 
@@ -14,10 +14,10 @@ class JobsInput(BaseModel):
     title: str
     company: str
     location: str
-    salary: int
+    salary: Optional[int] = None
     job_type: str
     job_url: str
-    source_id: str
+    source_id: int
 
 class SavedJob(BaseModel):
     job_id: int
