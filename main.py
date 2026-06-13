@@ -1,9 +1,19 @@
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from database import supabase
 from auth import create_token, get_current_user, verify_password, hash_password
 from models import RegisterUser, LoginUser, JobsInput, SavedJob, AlertPreference, SearchJob, SourceInput
 
-app = FastAPI() 
+app = FastAPI()
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with your frontend URL(s)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+) 
 
 @app.get("/")
 def home():
@@ -78,6 +88,19 @@ def create_job(job: JobsInput, user_id: str = Depends(get_current_user)):
         "job": new_job.data[0]
     }
 
+
+@app.get("/jobs/{job_id}")
+def get_job(job_id: int, user_id: int = Depends(get_current_user)):
+    job = (supabase.table("jobs").select("*").eq("id", job_id).execute())
+
+    if not job.data:
+        raise HTTPException(
+            status_code=404,
+            detail="Job not found"
+        )
+    return job.data[0]
+
+
 @app.get("/get_jobs")
 def get_jobs(user_id: str = Depends(get_current_user)):
     jobs = supabase.table("jobs").select("*").execute()
@@ -117,3 +140,115 @@ def search_jobs(search: SearchJob, user_id: str = Depends(get_current_user)):
         results = filtered_results
     
     return results
+
+@app.post("/save_job")
+def save_job(saved_job: SavedJob, user_id: str = Depends(get_current_user)):
+    existing = (supabase.table("saved_jobs").select("*").eq("user_id", user_id).eq("job_id", saved_job.job_id).execute())
+
+    if existing.data:
+        raise HTTPException(
+            status_code=400,
+            detail="Job already saved"
+        )
+
+    saved = (supabase.table("saved_jobs").insert({"user_id": user_id,"job_id": saved_job.job_id}).execute())
+
+    return {
+        "message": "Job saved successfully",
+        "saved_job": saved.data[0]
+    }
+
+@app.get("/saved_jobs")
+def get_saved_jobs(user_id: int = Depends(get_current_user)):
+    saved = (supabase.table("saved_jobs").select("*, jobs(*)").eq("user_id", user_id).execute())
+    return saved.data
+
+
+@app.delete("/saved_jobs/{job_id}")
+def unsave_job(job_id: int, user_id: int = Depends(get_current_user)):
+    deleted = (supabase.table("saved_jobs").delete().eq("user_id", user_id).eq("job_id", job_id).execute())
+    return {"message": "Job unsaved successfully"}
+
+
+@app.get("/job_sources")
+def get_sources(user_id: str = Depends(get_current_user)):
+    sources = (supabase.table("job_sources").select("*").execute())
+    return sources.data
+
+
+@app.delete("/job_sources/{source_id}")
+def delete_source(source_id: int, user_id: str = Depends(get_current_user)):
+    deleted = (supabase.table("job_sources").delete().eq("id", source_id).execute())
+    return {"message": "Job source deleted successfully"}
+
+
+@app.post("/alert_preferences")
+def create_alert(alert: AlertPreference, user_id: int = Depends(get_current_user)):
+    new_alert = (supabase.table("alert_preferences").insert({
+            "user_id": user_id,
+            "keyword": alert.keyword,
+            "location": alert.location,
+            "min_salary": alert.min_salary,
+            "email_enabled": alert.email_enabled
+        }).execute()
+    )
+    return {"message": "Alert preference created successfully", "alert": new_alert.data[0]}
+
+
+@app.get("/alert_preferences")
+def get_alerts(user_id: int = Depends(get_current_user)):
+    alerts = (supabase.table("alert_preferences").select("*").eq("user_id", user_id).execute())
+    return alerts.data
+
+
+@app.delete("/alert_preferences/{alert_id}")
+def delete_alert(alert_id: int, user_id: int = Depends(get_current_user)):
+    deleted = (supabase.table("alert_preferences").delete().eq("user_id", user_id).eq("id", alert_id).execute())
+    return {"message": "Alert preference deleted successfully"}
+
+
+
+@app.get("/get_jobs")
+def get_jobs(page: int = 1, per_page: int = 10, user_id: str = Depends(get_current_user)):
+    offset = (page - 1) * per_page
+    jobs = supabase.table("jobs").select("*").range(offset, offset + per_page - 1).execute()
+    return {"jobs": jobs.data, "page": page, "per_page": per_page}
+
+
+@app.post("/search_jobs")
+def search_jobs(search: SearchJob, page: int = 1, per_page: int = 10, user_id: str = Depends(get_current_user)):
+    query = supabase.table("jobs").select("*")
+    
+    if search.keyword:
+        query = query.ilike("title", f"%{search.keyword}%")
+    
+    if search.location:
+        query = query.ilike("location", f"%{search.location}%")
+    
+    if search.company:
+        query = query.ilike("company", f"%{search.company}%")
+    
+    if search.job_type:
+        query = query.eq("job_type", search.job_type)
+    
+    jobs = query.execute()
+    results = jobs.data
+    
+    if search.min_salary:
+        filtered_results = []
+        for job in results:
+            job_salary = job.get("salary")
+            if job_salary is not None:
+                try:
+                    salary_int = int(job_salary)
+                    if salary_int >= search.min_salary:
+                        filtered_results.append(job)
+                except (ValueError, TypeError):
+                    pass
+        results = filtered_results
+    
+    offset = (page - 1) * per_page
+    paginated_results = results[offset:offset + per_page]
+    
+    return {"jobs": paginated_results, "page": page, "per_page": per_page, "total": len(results)}
+    
