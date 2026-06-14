@@ -68,6 +68,19 @@ def login(user: LoginUser):
         "token_type": "bearer"
     }
 
+
+@app.get("/profile")
+def profile(user_id: int = Depends(get_current_user)):
+    user = (supabase.table("users").select("id, username, email, created_at").eq("id", user_id).execute())
+
+    if not user.data:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+    return user.data[0]
+
+
 @app.post("/job_sources")
 def create_source(source: SourceInput, user_id: str = Depends(get_current_user)):
     new_source = (supabase.table("job_sources").insert({"source_name": source.source_name, "source_url": source.source_url}).execute()
@@ -105,6 +118,12 @@ def get_job(job_id: int, user_id: int = Depends(get_current_user)):
 def get_jobs(user_id: str = Depends(get_current_user)):
     jobs = supabase.table("jobs").select("*").execute()
     return jobs.data
+
+@app.get("/get_jobs")
+def get_jobs(page: int = 1, per_page: int = 10, user_id: str = Depends(get_current_user)):
+    offset = (page - 1) * per_page
+    jobs = supabase.table("jobs").select("*").range(offset, offset + per_page - 1).execute()
+    return {"jobs": jobs.data, "page": page, "per_page": per_page}
 
 
 @app.post("/search_jobs")
