@@ -25,7 +25,7 @@ function Layout() {
   const isResumePage = location.pathname === '/resume';
 
   return (
-    <div className="app-layout">
+    <div className={`app-layout ${isResumePage ? 'no-scroll' : ''}`}>
       <div className="video-background-container">
         <video key={currentVideo} autoPlay loop muted playsInline className="video-background-el">
           <source src={currentVideo} type="video/mp4" />

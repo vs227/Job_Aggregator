@@ -1,6 +1,7 @@
 .resume-page-layout {
   display: flex;
-  width: 100vw;
+  width: 100%;
+  max-width: 100%;
   height: calc(100vh - 80px);
   overflow: hidden;
   margin-top: 80px;
@@ -61,8 +62,8 @@
 
 .chat-message.user {
   align-self: flex-end;
-  background: var(--gradient-primary);
-  color: white;
+  background: #ffffff;
+  color: #000000;
   border-bottom-right-radius: 2px;
   box-shadow: var(--shadow-sm);
 }
