@@ -60,12 +60,7 @@ function LoginPage() {
           </div>
         </div>
 
-        {/* Right Side: Standalone Form Card */}
         <div className="auth-card glass">
-          <div className="auth-badge">
-            <MdOutlineShield className="auth-badge-icon" />
-            <span>Secure Authentication</span>
-          </div>
           <div className="auth-header">
             <h1 className="auth-title">Welcome Back</h1>
             <p className="auth-subtitle">Sign in to search and track jobs</p>

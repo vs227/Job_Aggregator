@@ -19,9 +19,17 @@
   display: block;
 }
 
+[data-theme='light'] .footer-logo-img {
+  filter: invert(1);
+}
+
 .footer-text {
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+
+[data-theme='light'] .footer-text {
+  color: #000000;
 }
 
 @media (max-width: 768px) {

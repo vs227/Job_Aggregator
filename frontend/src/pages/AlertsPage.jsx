@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { MdDelete, MdNotificationsActive, MdLocationOn, MdAttachMoney, MdEmail } from 'react-icons/md';
+import { MdDelete, MdNotificationsActive, MdCheck, MdLocationOn } from 'react-icons/md';
 import Loader from '../components/Loader';
 import { fetchAlerts, createAlert, deleteAlert } from '../services/api';
 import './AlertsPage.css';
@@ -78,46 +78,61 @@ function AlertsPage() {
           <form className="auth-form" onSubmit={handleSubmit}>
             <div className="form-group">
               <label className="form-label">Keyword *</label>
-              <input
-                type="text"
-                className="input-field"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                placeholder="e.g. Python Developer"
-                required
-              />
+              <div className="input-wrapper">
+                <MdNotificationsActive className="input-icon" />
+                <input
+                  type="text"
+                  className="input-field"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder=" "
+                  required
+                />
+                <span className="input-accent-line"></span>
+              </div>
             </div>
             <div className="form-group">
               <label className="form-label">Location</label>
-              <input
-                type="text"
-                className="input-field"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="e.g. Bangalore"
-              />
+              <div className="input-wrapper">
+                <MdLocationOn className="input-icon" />
+                <input
+                  type="text"
+                  className="input-field"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder=" "
+                />
+                <span className="input-accent-line"></span>
+              </div>
             </div>
             <div className="form-group">
               <label className="form-label">Min Salary (INR)</label>
-              <input
-                type="number"
-                className="input-field"
-                value={minSalary}
-                onChange={(e) => setMinSalary(e.target.value)}
-                placeholder="e.g. 600000"
-              />
+              <div className="input-wrapper">
+                <span className="input-icon-text">₹</span>
+                <input
+                  type="number"
+                  className="input-field"
+                  value={minSalary}
+                  onChange={(e) => setMinSalary(e.target.value)}
+                  placeholder=" "
+                />
+                <span className="input-accent-line"></span>
+              </div>
             </div>
-            <div className="alert-checkbox-group">
-              <input
-                type="checkbox"
-                id="email-enabled"
-                className="alert-checkbox"
-                checked={emailEnabled}
-                onChange={(e) => setEmailEnabled(e.target.checked)}
-              />
-              <label htmlFor="email-enabled" className="form-label" style={{ margin: 0, cursor: 'pointer' }}>
-                Enable Email Notifications
-              </label>
+            <div className="alert-toggle-group">
+              <div className="toggle-switch-container">
+                <input
+                  type="checkbox"
+                  id="email-enabled"
+                  className="toggle-switch-input"
+                  checked={emailEnabled}
+                  onChange={(e) => setEmailEnabled(e.target.checked)}
+                />
+                <label htmlFor="email-enabled" className="toggle-switch-label">
+                  <span className="toggle-switch-switch"></span>
+                </label>
+              </div>
+              <span className="toggle-label-text">Enable Email Notifications</span>
             </div>
             <button type="submit" className="btn-primary" disabled={submitting}>
               {submitting ? 'Creating...' : 'Create Alert'}
@@ -136,19 +151,19 @@ function AlertsPage() {
                     <span className="alert-keyword">{alert.keyword}</span>
                     <div className="alert-meta-tags">
                       {alert.location && (
-                        <span className="badge badge-blue">
-                          <MdLocationOn style={{ marginRight: '4px' }} />
+                        <span className="badge alert-badge-custom">
+                          <MdCheck className="animated-tick" />
                           {alert.location}
                         </span>
                       )}
                       {alert.min_salary && (
-                        <span className="badge badge-emerald">
-                          <MdAttachMoney style={{ marginRight: '2px' }} />
+                        <span className="badge alert-badge-custom">
+                          <MdCheck className="animated-tick" />
                           ₹{alert.min_salary.toLocaleString()}
                         </span>
                       )}
-                      <span className={`badge ${alert.email_enabled ? 'badge-purple' : 'badge-amber'}`}>
-                        <MdEmail style={{ marginRight: '4px' }} />
+                      <span className="badge alert-badge-custom">
+                        <MdCheck className="animated-tick" />
                         {alert.email_enabled ? 'Email On' : 'Email Off'}
                       </span>
                     </div>

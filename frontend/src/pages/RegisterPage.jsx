@@ -41,7 +41,7 @@ function RegisterPage() {
           <span className="auth-info-tag">START YOUR JOURNEY</span>
           <h2 className="auth-info-title">Discover Opportunities Suited For You</h2>
           <p className="auth-info-subtitle">
-            Join HumRes to track listings, manage application statuses, and automate alerts across the web.
+            Join HirePulse to track listings, manage application statuses, and automate alerts across the web.
           </p>
           <div className="auth-feature-list">
             <div className="auth-feature-item">
@@ -59,12 +59,7 @@ function RegisterPage() {
           </div>
         </div>
 
-        {/* Right Side: Standalone Form Card */}
         <div className="auth-card glass">
-          <div className="auth-badge">
-            <MdOutlineShield className="auth-badge-icon" />
-            <span>Create New Profile</span>
-          </div>
           <div className="auth-header">
             <h1 className="auth-title">Create Account</h1>
             <p className="auth-subtitle">Get started with your job search</p>

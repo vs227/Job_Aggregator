@@ -18,9 +18,7 @@ import vidin from './assets/vidin.mp4';
 import './App.css';
 
 function Layout() {
-  const location = useLocation();
-  const isPreLoginPath = ['/', '/login', '/register'].includes(location.pathname);
-  const currentVideo = isPreLoginPath ? vid2 : vidin;
+  const currentVideo = vid2;
 
   return (
     <div className="app-layout">

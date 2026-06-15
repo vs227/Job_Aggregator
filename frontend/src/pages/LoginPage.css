@@ -67,34 +67,6 @@
   box-shadow: 0 20px 40px rgba(15, 23, 42, 0.05);
 }
 
-.auth-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--accent-blue);
-  margin-bottom: 24px;
-  align-self: flex-start;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-}
-
-[data-theme='light'] .auth-badge {
-  background: rgba(15, 23, 42, 0.04);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  color: var(--accent-blue);
-}
-
-.auth-badge-icon {
-  font-size: 0.85rem;
-}
-
 .auth-header {
   text-align: left;
   margin-bottom: 32px;
@@ -251,11 +223,14 @@
 
 /* Marketing Info Panel & Floating Job Card Styles */
 .auth-info-tag {
-  display: block;
+  display: inline-block;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.15em;
-  color: var(--accent-purple);
+  background: linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-blue-hover) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin-bottom: 12px;
 }
 

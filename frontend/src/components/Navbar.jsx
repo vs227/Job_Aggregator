@@ -28,7 +28,7 @@ function Navbar() {
     <nav className="navbar">
       <div className="navbar-container navbar-inner">
         <Link to="/" className="navbar-logo">
-          <img src={logo} alt="HumRes" className="navbar-logo-img" />
+          <img src={logo} alt="HirePulse" className="navbar-logo-img" />
         </Link>
 
         {isAuthenticated && (
