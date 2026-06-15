@@ -82,7 +82,10 @@
   padding: 5px;
   max-width: 44px;
   height: 44px;
-  transition: max-width 0.35s cubic-bezier(0.4, 0, 0.2, 1), padding 0.35s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s, background 0.2s;
+  transition: max-width 0.62s cubic-bezier(0.25, 1, 0.5, 1),
+    padding 0.62s cubic-bezier(0.25, 1, 0.5, 1),
+    border-color 0.3s ease,
+    background 0.3s ease;
   overflow: hidden;
 }
 
@@ -108,7 +111,9 @@
   max-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  transition: max-width 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease, margin-left 0.35s;
+  transition: max-width 0.62s cubic-bezier(0.25, 1, 0.5, 1),
+    opacity 0.38s ease,
+    margin-left 0.62s cubic-bezier(0.25, 1, 0.5, 1);
   margin-left: 0;
 }
 
@@ -117,12 +122,14 @@
   padding: 5px 16px 5px 5px;
   background: var(--bg-glass-hover);
   border-color: var(--border-glass-hover);
+  transition-delay: 0.18s;
 }
 
 .navbar-user-link:hover .navbar-username {
   max-width: 150px;
   opacity: 1;
   margin-left: 10px;
+  transition-delay: 0.18s;
 }
 
 .navbar-mobile-toggle {
@@ -145,14 +152,14 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 0.25s ease,
-    margin 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-    padding 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-    border-color 0.35s ease,
-    background-color 0.4s ease,
-    color 0.4s ease,
-    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width 0.62s cubic-bezier(0.25, 1, 0.5, 1),
+    opacity 0.38s ease,
+    margin 0.62s cubic-bezier(0.25, 1, 0.5, 1),
+    padding 0.62s cubic-bezier(0.25, 1, 0.5, 1),
+    border-color 0.62s ease,
+    background-color 0.62s ease,
+    color 0.62s ease,
+    transform 0.3s ease;
   font-size: 1.25rem;
   margin-left: 12px;
   margin-right: 12px;
@@ -187,6 +194,7 @@
   padding: 0;
   border-color: transparent;
   pointer-events: none;
+  transition-delay: 0.18s;
 }
 
 @media (max-width: 768px) {
