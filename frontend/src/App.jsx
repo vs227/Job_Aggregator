@@ -12,6 +12,8 @@ import JobDetailPage from './pages/JobDetailPage';
 import SavedJobsPage from './pages/SavedJobsPage';
 import AlertsPage from './pages/AlertsPage';
 import ProfilePage from './pages/ProfilePage';
+import ResumePage from './pages/ResumePage';
+
 import { useEffect } from 'react';
 import vid2 from './assets/vid2.mp4';
 import vidin from './assets/vidin.mp4';
@@ -19,6 +21,8 @@ import './App.css';
 
 function Layout() {
   const currentVideo = vid2;
+  const location = useLocation();
+  const isResumePage = location.pathname === '/resume';
 
   return (
     <div className="app-layout">
@@ -32,7 +36,7 @@ function Layout() {
       <main className="app-main">
         <Outlet />
       </main>
-      <Footer />
+      {!isResumePage && <Footer />}
     </div>
   );
 }
@@ -83,6 +87,15 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/resume"
+              element={
+                <ProtectedRoute>
+                  <ResumePage />
+                </ProtectedRoute>
+              }
+            />
+
             <Route
               path="/profile"
               element={

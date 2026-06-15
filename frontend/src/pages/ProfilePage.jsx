@@ -1,8 +1,24 @@
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { useRef, useEffect } from 'react';
 import './ProfilePage.css';
 
 function ProfilePage() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const cardRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (cardRef.current && !cardRef.current.contains(event.target)) {
+        navigate(-1); // Navigate back to the previous page (e.g., dashboard, resume)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [navigate]);
 
   if (!user) return null;
 
@@ -14,7 +30,7 @@ function ProfilePage() {
 
   return (
     <div className="profile-page container">
-      <div className="profile-card glass fade-in">
+      <div className="profile-card glass fade-in" ref={cardRef}>
         <div className="profile-avatar-large">
           {user.username.charAt(0).toUpperCase()}
         </div>

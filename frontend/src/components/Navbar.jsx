@@ -1,16 +1,33 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { HiOutlineMenu, HiOutlineX } from 'react-icons/hi';
-import { MdDashboard, MdBookmark, MdNotifications, MdPerson, MdLightMode, MdDarkMode } from 'react-icons/md';
+import { MdDashboard, MdBookmark, MdNotifications, MdPerson, MdLightMode, MdDarkMode, MdContactPage } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import logo from '../assets/logo.png';
 import './Navbar.css';
 
+
 function Navbar() {
   const { isAuthenticated, user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
   const navigate = useNavigate();
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setProfileOpen(false);
+      }
+    }
+    if (profileOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [profileOpen]);
 
   function toggleTheme() {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
@@ -49,16 +66,41 @@ function Navbar() {
               <NavLink to="/alerts" title="Alerts" onClick={() => setMobileOpen(false)}>
                 <MdNotifications /> <span className="nav-text">Alerts</span>
               </NavLink>
+              <NavLink to="/resume" title="Resume" onClick={() => setMobileOpen(false)}>
+                <MdContactPage /> <span className="nav-text">Resume</span>
+              </NavLink>
             </div>
-            <div className="navbar-actions">
-              <Link to="/profile" className="navbar-user-link">
-                <div className="navbar-user">
+
+            <div className="navbar-actions" ref={dropdownRef}>
+              <div className="navbar-user-wrapper">
+                <div 
+                  className="navbar-user" 
+                  onClick={() => setProfileOpen(!profileOpen)} 
+                  style={{ cursor: 'pointer' }}
+                >
                   <div className="navbar-avatar">
                     {user?.username?.charAt(0).toUpperCase() || 'U'}
                   </div>
                   <span className="navbar-username">{user?.username || 'User'}</span>
                 </div>
-              </Link>
+
+                {profileOpen && (
+                  <div className="navbar-profile-dropdown glass">
+                    <div className="dropdown-user-info">
+                      <div className="dropdown-username">{user?.username || 'User'}</div>
+                      <div className="dropdown-email">{user?.email || ''}</div>
+                    </div>
+                    <div className="dropdown-divider"></div>
+                    <Link 
+                      to="/profile" 
+                      className="dropdown-item" 
+                      onClick={() => setProfileOpen(false)}
+                    >
+                      <MdPerson /> Profile
+                    </Link>
+                  </div>
+                )}
+              </div>
               <button className="theme-toggle-btn" onClick={toggleTheme} title="Toggle Theme">
                 {theme === 'dark' ? <MdLightMode /> : <MdDarkMode />}
               </button>
