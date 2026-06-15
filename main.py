@@ -6,10 +6,9 @@ from models import RegisterUser, LoginUser, JobsInput, SavedJob, AlertPreference
 
 app = FastAPI()
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with your frontend URL(s)
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -115,23 +114,22 @@ def get_job(job_id: int, user_id: int = Depends(get_current_user)):
 
 
 @app.get("/get_jobs")
-def get_jobs(user_id: str = Depends(get_current_user)):
-    jobs = supabase.table("jobs").select("*").execute()
-    return jobs.data
-
-@app.get("/get_jobs")
 def get_jobs(page: int = 1, per_page: int = 10, user_id: str = Depends(get_current_user)):
     offset = (page - 1) * per_page
     jobs = supabase.table("jobs").select("*").range(offset, offset + per_page - 1).execute()
     return {"jobs": jobs.data, "page": page, "per_page": per_page}
 
 
+@app.get("/locations")
+def get_locations(user_id: str = Depends(get_current_user)):
+    res = supabase.table("jobs").select("location").execute()
+    locations = sorted(list(set(item["location"].strip() for item in res.data if item.get("location"))))
+    return locations
+
+
 @app.post("/search_jobs")
-def search_jobs(search: SearchJob, user_id: str = Depends(get_current_user)):
+def search_jobs(search: SearchJob, page: int = 1, per_page: int = 10, user_id: str = Depends(get_current_user)):
     query = supabase.table("jobs").select("*")
-    
-    if search.keyword:
-        query = query.ilike("title", f"%{search.keyword}%")
     
     if search.location:
         query = query.ilike("location", f"%{search.location}%")
@@ -145,6 +143,17 @@ def search_jobs(search: SearchJob, user_id: str = Depends(get_current_user)):
     jobs = query.execute()
     results = jobs.data
     
+    if search.keyword:
+        keywords = search.keyword.lower().split()
+        filtered = []
+        for job in results:
+            title = (job.get("title") or "").lower()
+            company = (job.get("company") or "").lower()
+            desc = (job.get("description") or "").lower()
+            if all(any(kw in field for field in (title, company, desc)) for kw in keywords):
+                filtered.append(job)
+        results = filtered
+        
     if search.min_salary:
         filtered_results = []
         for job in results:
@@ -158,7 +167,11 @@ def search_jobs(search: SearchJob, user_id: str = Depends(get_current_user)):
                     pass
         results = filtered_results
     
-    return results
+    offset = (page - 1) * per_page
+    paginated_results = results[offset:offset + per_page]
+    
+    return {"jobs": paginated_results, "page": page, "per_page": per_page, "total": len(results)}
+
 
 @app.post("/save_job")
 def save_job(saved_job: SavedJob, user_id: str = Depends(get_current_user)):
@@ -224,50 +237,3 @@ def get_alerts(user_id: int = Depends(get_current_user)):
 def delete_alert(alert_id: int, user_id: int = Depends(get_current_user)):
     deleted = (supabase.table("alert_preferences").delete().eq("user_id", user_id).eq("id", alert_id).execute())
     return {"message": "Alert preference deleted successfully"}
-
-
-
-@app.get("/get_jobs")
-def get_jobs(page: int = 1, per_page: int = 10, user_id: str = Depends(get_current_user)):
-    offset = (page - 1) * per_page
-    jobs = supabase.table("jobs").select("*").range(offset, offset + per_page - 1).execute()
-    return {"jobs": jobs.data, "page": page, "per_page": per_page}
-
-
-@app.post("/search_jobs")
-def search_jobs(search: SearchJob, page: int = 1, per_page: int = 10, user_id: str = Depends(get_current_user)):
-    query = supabase.table("jobs").select("*")
-    
-    if search.keyword:
-        query = query.ilike("title", f"%{search.keyword}%")
-    
-    if search.location:
-        query = query.ilike("location", f"%{search.location}%")
-    
-    if search.company:
-        query = query.ilike("company", f"%{search.company}%")
-    
-    if search.job_type:
-        query = query.eq("job_type", search.job_type)
-    
-    jobs = query.execute()
-    results = jobs.data
-    
-    if search.min_salary:
-        filtered_results = []
-        for job in results:
-            job_salary = job.get("salary")
-            if job_salary is not None:
-                try:
-                    salary_int = int(job_salary)
-                    if salary_int >= search.min_salary:
-                        filtered_results.append(job)
-                except (ValueError, TypeError):
-                    pass
-        results = filtered_results
-    
-    offset = (page - 1) * per_page
-    paginated_results = results[offset:offset + per_page]
-    
-    return {"jobs": paginated_results, "page": page, "per_page": per_page, "total": len(results)}
-    
