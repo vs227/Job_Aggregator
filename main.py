@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from database import supabase
 from auth import create_token, get_current_user, verify_password, hash_password
@@ -215,7 +215,7 @@ def delete_source(source_id: int, user_id: str = Depends(get_current_user)):
 
 
 @app.post("/alert_preferences")
-def create_alert(alert: AlertPreference, user_id: int = Depends(get_current_user)):
+def create_alert(alert: AlertPreference, background_tasks: BackgroundTasks, user_id: int = Depends(get_current_user)):
     new_alert = (supabase.table("alert_preferences").insert({
             "user_id": user_id,
             "keyword": alert.keyword,
@@ -224,7 +224,19 @@ def create_alert(alert: AlertPreference, user_id: int = Depends(get_current_user
             "email_enabled": alert.email_enabled
         }).execute()
     )
+
+    if alert.email_enabled:
+        from alerts import send_immediate_alerts
+        background_tasks.add_task(
+            send_immediate_alerts,
+            user_id,
+            alert.keyword,
+            alert.location,
+            alert.min_salary
+        )
+
     return {"message": "Alert preference created successfully", "alert": new_alert.data[0]}
+
 
 
 @app.get("/alert_preferences")

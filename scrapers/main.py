@@ -69,6 +69,7 @@ def main():
     source_id = get_or_create_source()
     inserted, skipped = 0, 0
     seen = set()
+    new_jobs = []
 
     for keyword in KEYWORDS:
         if inserted >= TARGET_JOBS:
@@ -96,11 +97,14 @@ def main():
                     skipped += 1
                     continue
 
-                supabase.table("jobs").insert({
+                res = supabase.table("jobs").insert({
                     "title": title, "company": company, "location": location,
                     "salary": salary, "job_type": "Full-time",
                     "description": desc, "job_url": url, "source_id": source_id,
                 }).execute()
+
+                if res.data:
+                    new_jobs.append(res.data[0])
 
                 inserted += 1
                 print(f"  Inserted: {title} at {company}")
@@ -110,6 +114,11 @@ def main():
         time.sleep(1)
 
     print(f"\nDone! {inserted} jobs imported, {skipped} duplicates skipped.")
+
+    if new_jobs:
+        from alerts import match_and_send_alerts
+        match_and_send_alerts(new_jobs)
+
 
 
 if __name__ == "__main__":
