@@ -23,7 +23,6 @@ class JobsInput(BaseModel):
 class SavedJob(BaseModel):
     job_id: int
 
-
 class AlertPreference(BaseModel):
     keyword: str
     location: Optional[str] = None
@@ -37,7 +36,9 @@ class SearchJob(BaseModel):
     min_salary: Optional[int] = None
     job_type: Optional[str] = None
 
-
 class SourceInput(BaseModel):
     source_name: str
     source_url: str
+
+class ResumeChatInput(BaseModel):
+    message: str

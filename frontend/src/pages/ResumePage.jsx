@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { 
   MdCloudUpload, 
@@ -6,125 +6,167 @@ import {
   MdCheckCircle, 
   MdCancel, 
   MdInfo,
-  MdAutorenew
+  MdAutorenew,
+  MdBookmark,
+  MdBookmarkBorder
 } from 'react-icons/md';
 import { IoIosPaperPlane } from 'react-icons/io';
 import './ResumePage.css';
-
+import { uploadResume, chatWithResume, saveJob, unsaveJob, fetchSavedJobs } from '../services/api';
 
 function ResumePage() {
-  // Chat state
   const [messages, setMessages] = useState([
     {
       id: 1,
       sender: 'ai',
-      text: 'Hello! I am your AI Job Assistant. Upload your resume on the right, and I will recommend matching jobs and help you optimize your profile.'
-    },
-    {
-      id: 2,
-      sender: 'user',
-      text: 'Can you recommend some web developer jobs?'
-    },
-    {
-      id: 3,
-      sender: 'ai',
-      text: 'I found a few matches based on web development:\n\n1. Full Stack Developer (React/Node) at TechCorp (Match: 87%)\n2. Frontend Engineer at WebFlow (Match: 79%)\n\nUpload your resume on the right to see direct matching scores and get personalized suggestions!'
+      text: 'Hello! I am HirePulse Pivot AI. Upload your resume on the right, and I will recommend matching jobs and help you optimize your profile.'
     }
   ]);
   const [inputVal, setInputVal] = useState('');
-  const [isLaunching, setIsLaunching] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const chatEndRef = useRef(null);
 
-  // Upload/Analysis state
   const [file, setFile] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
-  const [dashOffset, setDashOffset] = useState(251.2); // Full circle offset for score circle animation
+  const [fillHeight, setFillHeight] = useState('0%');
+  const [analysisData, setAnalysisData] = useState(null);
+  const [savedJobIds, setSavedJobIds] = useState(new Set());
 
-  // Animate circular progress when analysis is shown
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isTyping]);
+
   useEffect(() => {
     if (showAnalysis) {
       const timer = setTimeout(() => {
-        setDashOffset(251.2 * (1 - 0.87));
+        setFillHeight(`${analysisData?.match_score || 87}%`);
       }, 100);
       return () => clearTimeout(timer);
     } else {
-      setDashOffset(251.2);
+      setFillHeight('0%');
     }
-  }, [showAnalysis]);
+  }, [showAnalysis, analysisData]);
 
-  function handleSendMessage(e) {
+  useEffect(() => {
+    async function loadSavedJobs() {
+      try {
+        const data = await fetchSavedJobs();
+        const ids = new Set(data.map(j => j.id));
+        setSavedJobIds(ids);
+      } catch (err) {
+        console.error("Failed to load saved jobs", err);
+      }
+    }
+    loadSavedJobs();
+  }, []);
+
+  async function handleSaveToggle(jobId) {
+    const isCurrentlySaved = savedJobIds.has(jobId);
+    try {
+      if (isCurrentlySaved) {
+        await unsaveJob(jobId);
+        setSavedJobIds(prev => {
+          const next = new Set(prev);
+          next.delete(jobId);
+          return next;
+        });
+        toast.success('Job removed from bookmarks!');
+      } else {
+        await saveJob(jobId);
+        setSavedJobIds(prev => {
+          const next = new Set(prev);
+          next.add(jobId);
+          return next;
+        });
+        toast.success('Job bookmarked successfully!');
+      }
+    } catch (err) {
+      toast.error(err.message || 'Failed to update bookmark');
+    }
+  }
+
+  async function handleSendMessage(e) {
     e.preventDefault();
-    if (!inputVal.trim() || isLaunching) return;
+    if (!inputVal.trim() || isTyping) return;
 
-    setIsLaunching(true);
-    setTimeout(() => {
-      setIsLaunching(false);
-    }, 850); // Flight & return duration
-
+    const userMsgVal = inputVal;
     const newMsg = {
       id: Date.now(),
       sender: 'user',
-      text: inputVal
+      text: userMsgVal
     };
 
     setMessages(prev => [...prev, newMsg]);
     setInputVal('');
+    setIsTyping(true);
 
-    // Simulated AI response
-    setTimeout(() => {
+    try {
+      const data = await chatWithResume(userMsgVal);
       const aiReply = {
         id: Date.now() + 1,
         sender: 'ai',
-        text: showAnalysis 
-          ? "Based on your uploaded resume, you have strong matches in Javascript and Python. I suggest tailoring your resume's experience section to highlight your API integration work to boost scores further."
-          : "Once you upload your resume on the right, I can scan your exact skills and compare them with our active database of jobs to give you targeted recommendations."
+        text: data.response,
+        jobs: data.matches || []
       };
       setMessages(prev => [...prev, aiReply]);
-    }, 1000);
+    } catch (err) {
+      const errorReply = {
+        id: Date.now() + 1,
+        sender: 'ai',
+        text: `Error: ${err.message || 'Failed to communicate with AI'}`
+      };
+      setMessages(prev => [...prev, errorReply]);
+    } finally {
+      setIsTyping(false);
+    }
   }
 
-  function handleFileChange(e) {
+  async function handleFileChange(e) {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0];
       setFile(selectedFile);
       setAnalyzing(true);
       setShowAnalysis(false);
 
-      // Simulate parsing & scoring
-      setTimeout(() => {
+      try {
+        const responseData = await uploadResume(selectedFile);
+        setAnalysisData(responseData.analysis || null);
         setAnalyzing(false);
         setShowAnalysis(true);
         toast.success('Resume analyzed successfully!');
-      }, 2000);
+      } catch (err) {
+        setAnalyzing(false);
+        toast.error(err.message || 'Failed to process resume');
+      }
     }
   }
 
   return (
     <div className="resume-page-layout fade-in">
 
-        {/* Left Column (63%): Resume Upload & Analysis */}
         <div className="resume-upload-section">
           <h2 className="section-title">Resume Analyzer & Matcher</h2>
 
-          {/* Upload Dropzone */}
-          <label className="upload-dropzone">
-            <MdCloudUpload className="upload-icon" />
-            <span className="upload-text-main">
-              {file ? file.name : 'Upload your resume'}
-            </span>
-            <span className="upload-text-sub">
-              Supports PDF, DOCX up to 10MB
-            </span>
-            <input
-              type="file"
-              accept=".pdf,.doc,.docx"
-              onChange={handleFileChange}
-              style={{ display: 'none' }}
-              disabled={analyzing}
-            />
-          </label>
+          {!showAnalysis && !analyzing && (
+            <label className="upload-dropzone">
+              <MdCloudUpload className="upload-icon" />
+              <span className="upload-text-main">
+                {file ? file.name : 'Upload your resume'}
+              </span>
+              <span className="upload-text-sub">
+                Supports PDF, DOCX up to 10MB
+              </span>
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx"
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+                disabled={analyzing}
+              />
+            </label>
+          )}
 
-          {/* Analyzing / Loader state */}
           {analyzing && (
             <div className="resume-loader-container">
               <MdAutorenew className="resume-loader-icon" />
@@ -132,65 +174,63 @@ function ResumePage() {
             </div>
           )}
 
-          {/* Analysis Results */}
           {showAnalysis && !analyzing && (
             <div className="analysis-results-card">
               <div className="analysis-header">
                 <div className="analysis-header-info">
                   <h3>Analysis Complete</h3>
                   <p>Matches evaluated against 125 active job listings</p>
+                  <button 
+                    className="reupload-btn" 
+                    onClick={() => { 
+                      setFile(null); 
+                      setShowAnalysis(false); 
+                      setAnalysisData(null);
+                    }}
+                  >
+                    <MdCloudUpload /> Upload New
+                  </button>
                 </div>
-                
-                {/* Score Circle */}
-                <div className="score-circle-container">
-                  <svg className="score-circle-svg">
-                    <defs>
-                      <linearGradient id="scoreGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="var(--accent-blue)" />
-                        <stop offset="100%" stopColor="var(--accent-purple)" />
-                      </linearGradient>
-                    </defs>
-                    <circle className="score-circle-bg" cx="45" cy="45" r="40" />
-                    <circle 
-                      className="score-circle-fill" 
-                      cx="45" 
-                      cy="45" 
-                      r="40" 
-                      style={{ strokeDashoffset: dashOffset }}
-                    />
-                  </svg>
-                  <span className="score-text">87%</span>
+
+                <div className="water-container">
+                  <div 
+                    className="water-fill" 
+                    style={{ height: fillHeight }}
+                  />
                 </div>
               </div>
 
-              {/* Skills Matches */}
               <div className="analysis-skills-section">
                 <span className="skills-title">Matched Skills</span>
                 <div className="skills-grid">
-                  <span className="skills-badge match"><MdCheckCircle /> Python</span>
-                  <span className="skills-badge match"><MdCheckCircle /> React.js</span>
-                  <span className="skills-badge match"><MdCheckCircle /> FastAPI</span>
-                  <span className="skills-badge match"><MdCheckCircle /> SQL</span>
-                  <span className="skills-badge match"><MdCheckCircle /> Git</span>
+                  {analysisData?.matched_skills && analysisData.matched_skills.length > 0 ? (
+                    analysisData.matched_skills.map((skill, idx) => (
+                      <span key={idx} className="skills-badge match"><MdCheckCircle /> {skill}</span>
+                    ))
+                  ) : (
+                    <span className="skills-badge match" style={{ opacity: 0.6 }}><MdInfo /> No matched skills found</span>
+                  )}
                 </div>
               </div>
 
-              {/* Missing Skills */}
               <div className="analysis-skills-section">
                 <span className="skills-title">Missing / Demanded Skills</span>
                 <div className="skills-grid">
-                  <span className="skills-badge missing"><MdCancel /> Docker</span>
-                  <span className="skills-badge missing"><MdCancel /> AWS (EC2/S3)</span>
-                  <span className="skills-badge missing"><MdCancel /> CI/CD</span>
+                  {analysisData?.missing_skills && analysisData.missing_skills.length > 0 ? (
+                    analysisData.missing_skills.map((skill, idx) => (
+                      <span key={idx} className="skills-badge missing"><MdCancel /> {skill}</span>
+                    ))
+                  ) : (
+                    <span className="skills-badge missing" style={{ opacity: 0.6 }}><MdInfo /> None identified</span>
+                  )}
                 </div>
               </div>
 
-              {/* AI Feedback */}
               <div className="analysis-skills-section">
                 <span className="skills-title">AI Optimization Recommendation</span>
                 <div className="analysis-feedback-section">
                   <p className="analysis-feedback-text">
-                    Your profile has a solid foundation in web frameworks. To qualify for senior developer roles in the current market, consider adding containerization (Docker) and cloud deployments (AWS) to your resume.
+                    {analysisData?.recommendation || "Your resume has been processed. Ask the AI chat for personalized optimization steps."}
                   </p>
                 </div>
               </div>
@@ -198,10 +238,8 @@ function ResumePage() {
           )}
         </div>
 
-        {/* Animated Dividing Line */}
         <div className="animated-divider"></div>
 
-        {/* Right Column (37%): AI Chat */}
         <div className="resume-chat-section">
           <div className="chat-header">
             <span className="chat-header-title">HirePulse Pivot AI</span>
@@ -210,14 +248,58 @@ function ResumePage() {
           <div className="chat-history">
             {messages.map((msg) => (
               <div key={msg.id} className={`chat-message ${msg.sender}`}>
-                {msg.text.split('\n').map((line, idx) => (
-                  <React.Fragment key={idx}>
-                    {line}
-                    <br />
-                  </React.Fragment>
-                ))}
+                <div className="chat-message-text">
+                  {msg.text.split('\n').map((line, idx) => (
+                    <React.Fragment key={idx}>
+                      {line}
+                      <br />
+                    </React.Fragment>
+                  ))}
+                </div>
+                {msg.jobs && msg.jobs.length > 0 && (
+                  <div className="chat-jobs-container">
+                    {msg.jobs.map((job) => (
+                      <div key={job.id} className="chat-job-card-inner">
+                        <div className="chat-job-card-header">
+                          <div className="chat-job-title-container">
+                            <h4 className="chat-job-card-title">{job.title}</h4>
+                            <span className="chat-job-card-company">{job.company}</span>
+                          </div>
+                          <button
+                            className={`chat-job-card-save-btn ${savedJobIds.has(job.id) ? 'saved' : ''}`}
+                            onClick={() => handleSaveToggle(job.id)}
+                          >
+                            {savedJobIds.has(job.id) ? <MdBookmark /> : <MdBookmarkBorder />}
+                          </button>
+                        </div>
+                        {job.location && (
+                          <div className="chat-job-card-meta">
+                            <span>{job.location}</span>
+                            {job.salary && <span> • ₹{Number(job.salary).toLocaleString()}</span>}
+                          </div>
+                        )}
+                        <p className="chat-job-card-reason">{job.match_reason}</p>
+                        <div className="chat-job-card-actions">
+                          {job.job_url && job.job_url !== "#" && (
+                            <a href={job.job_url} target="_blank" rel="noopener noreferrer" className="chat-apply-btn">
+                              Apply Now
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
+            {isTyping && (
+              <div className="chat-message ai">
+                <div className="chat-typing-indicator">
+                  <span></span><span></span><span></span>
+                </div>
+              </div>
+            )}
+            <div ref={chatEndRef} />
           </div>
 
           <form className="chat-input-container" onSubmit={handleSendMessage}>
@@ -228,7 +310,7 @@ function ResumePage() {
               onChange={(e) => setInputVal(e.target.value)}
               placeholder="Ask AI for job recommendations..."
             />
-            <button type="submit" className={`chat-send-btn ${isLaunching ? 'launching' : ''}`} disabled={isLaunching}>
+            <button type="submit" className="chat-send-btn" disabled={isTyping}>
               <IoIosPaperPlane className="plane-icon" />
             </button>
           </form>

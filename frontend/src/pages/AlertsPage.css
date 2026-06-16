@@ -8,6 +8,8 @@
   font-size: 2rem;
   font-weight: 700;
   margin-bottom: 32px;
+  border-bottom: 1px solid var(--border-glass);
+  padding-bottom: 12px;
 }
 
 .alerts-layout {
@@ -40,7 +42,7 @@
   border-bottom-right-radius: var(--radius-md);
 }
 
-.input-wrapper:not(:focus-within) .input-field:placeholder-shown ~ .input-accent-line {
+.input-wrapper:not(:focus-within) .input-field:placeholder-shown~.input-accent-line {
   animation: pulseBar 2.5s ease-in-out infinite;
 }
 
@@ -51,10 +53,13 @@
 }
 
 @keyframes pulseBar {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 0.15;
     transform: scaleX(0.15);
   }
+
   50% {
     opacity: 0.55;
     transform: scaleX(0.35);
@@ -120,12 +125,12 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-.toggle-switch-input:checked + .toggle-switch-label {
+.toggle-switch-input:checked+.toggle-switch-label {
   background: linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-blue-hover) 100%);
   border-color: transparent;
 }
 
-.toggle-switch-input:checked + .toggle-switch-label .toggle-switch-switch {
+.toggle-switch-input:checked+.toggle-switch-label .toggle-switch-switch {
   transform: translateX(20px);
 }
 
@@ -235,6 +240,7 @@
     transform: scale(0) rotate(-45deg);
     opacity: 0;
   }
+
   100% {
     transform: scale(1) rotate(0);
     opacity: 1;

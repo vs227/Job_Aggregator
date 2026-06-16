@@ -14,7 +14,6 @@ JWT_ALGORITHM = os.getenv("JWT_ALGORITHM")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
-
 def hash_password(password: str):
     return pwd_context.hash(password)
 

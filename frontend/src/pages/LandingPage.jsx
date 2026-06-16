@@ -8,7 +8,7 @@ function LandingPage() {
 
   return (
     <div className="landing-page">
-      {/* 1. HERO SECTION */}
+      {}
       <section className="hero-grid-section container">
         <div className="hero-left">
           <h1 className="hero-main-title">
@@ -37,7 +37,7 @@ function LandingPage() {
           </div>
         </div>
       </section>
-      {/* 2. DYNAMIC PROCESS TIMELINE */}
+      {}
       <section className="workflow-section container">
         <div className="section-header-left">
           <span className="subtitle-tag">HOW HIREPULSE WORKS</span>

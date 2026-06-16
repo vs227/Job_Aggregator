@@ -12,4 +12,10 @@ beautifulsoup4
 httpx
 lxml
 requests
-resend
+resend
+google-generativeai
+pypdf
+python-docx
+python-multipart
+APScheduler
+

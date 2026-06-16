@@ -71,7 +71,9 @@ function AlertsPage() {
 
   return (
     <div className="alerts-page container">
-      <h1 className="alerts-title">Job Alerts</h1>
+      <div className="alerts-header-container">
+        <h1 className="alerts-title">Job Alerts</h1>
+      </div>
       <div className="alerts-layout">
         <div className="alert-form-card glass fade-in">
           <h2 className="alert-form-title">Create Alert</h2>
@@ -88,7 +90,6 @@ function AlertsPage() {
                   placeholder=" "
                   required
                 />
-                <span className="input-accent-line"></span>
               </div>
             </div>
             <div className="form-group">
@@ -102,21 +103,6 @@ function AlertsPage() {
                   onChange={(e) => setLocation(e.target.value)}
                   placeholder=" "
                 />
-                <span className="input-accent-line"></span>
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Min Salary (INR)</label>
-              <div className="input-wrapper">
-                <span className="input-icon-text">₹</span>
-                <input
-                  type="number"
-                  className="input-field"
-                  value={minSalary}
-                  onChange={(e) => setMinSalary(e.target.value)}
-                  placeholder=" "
-                />
-                <span className="input-accent-line"></span>
               </div>
             </div>
             <div className="alert-toggle-group">
@@ -147,25 +133,28 @@ function AlertsPage() {
             <div className="alerts-list">
               {alerts.map((alert) => (
                 <div key={alert.id} className="alert-item-card glass fade-in">
-                  <div className="alert-info">
-                    <span className="alert-keyword">{alert.keyword}</span>
-                    <div className="alert-meta-tags">
-                      {alert.location && (
-                        <span className="badge alert-badge-custom">
-                          <MdCheck className="animated-tick" />
-                          {alert.location}
+                  <div className="alert-info-container">
+                    <div className="alert-icon-wrapper">
+                      <MdNotificationsActive />
+                    </div>
+                    <div className="alert-details">
+                      <span className="alert-keyword">{alert.keyword}</span>
+                      <div className="alert-meta-tags">
+                        {alert.location && (
+                          <span className="badge alert-badge-custom location">
+                            <MdLocationOn />
+                            {alert.location}
+                          </span>
+                        )}
+                        {alert.min_salary && (
+                          <span className="badge alert-badge-custom salary">
+                            ₹{alert.min_salary.toLocaleString()}
+                          </span>
+                        )}
+                        <span className={`badge alert-badge-custom notification ${alert.email_enabled ? '' : 'disabled'}`}>
+                          {alert.email_enabled ? 'Email On' : 'Email Off'}
                         </span>
-                      )}
-                      {alert.min_salary && (
-                        <span className="badge alert-badge-custom">
-                          <MdCheck className="animated-tick" />
-                          ₹{alert.min_salary.toLocaleString()}
-                        </span>
-                      )}
-                      <span className="badge alert-badge-custom">
-                        <MdCheck className="animated-tick" />
-                        {alert.email_enabled ? 'Email On' : 'Email Off'}
-                      </span>
+                      </div>
                     </div>
                   </div>
                   <button className="alert-delete-btn" onClick={() => handleDelete(alert.id)}>

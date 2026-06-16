@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 function getHeaders() {
   const token = localStorage.getItem('token');
@@ -97,4 +97,32 @@ export function fetchSources() {
 
 export function fetchLocations() {
   return request('/locations');
+}
+
+export async function uploadResume(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const token = localStorage.getItem('token');
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${BASE_URL}/resume/upload`, {
+    method: 'POST',
+    headers,
+    body: formData
+  });
+  if (res.status === 401) {
+    localStorage.removeItem('token');
+    window.location.href = '/login';
+    throw new Error('Unauthorized');
+  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || 'Failed to upload resume');
+  return data;
+}
+
+export function chatWithResume(message) {
+  return request('/resume/chat', {
+    method: 'POST',
+    body: JSON.stringify({ message })
+  });
 }

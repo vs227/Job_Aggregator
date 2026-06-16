@@ -37,7 +37,7 @@ function LoginPage() {
     <div className="auth-page">
       <div className="auth-card-glow-bg"></div>
       <div className="auth-layout-wrapper fade-in">
-        {/* Left Side: Floating Content */}
+        {}
         <div className="auth-floating-info">
           <span className="auth-info-tag">AGGREGATED JOB INSIGHTS</span>
           <h2 className="auth-info-title">Your Next Career Move Starts Here</h2>

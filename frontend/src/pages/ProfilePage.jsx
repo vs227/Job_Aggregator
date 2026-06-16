@@ -11,7 +11,7 @@ function ProfilePage() {
   useEffect(() => {
     function handleClickOutside(event) {
       if (cardRef.current && !cardRef.current.contains(event.target)) {
-        navigate(-1); // Navigate back to the previous page (e.g., dashboard, resume)
+        navigate(-1); 
       }
     }
     document.addEventListener('mousedown', handleClickOutside);

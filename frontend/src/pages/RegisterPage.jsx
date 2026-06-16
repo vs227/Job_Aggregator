@@ -36,7 +36,7 @@ function RegisterPage() {
     <div className="register-page auth-page">
       <div className="auth-card-glow-bg"></div>
       <div className="auth-layout-wrapper fade-in">
-        {/* Left Side: Floating Content */}
+        {}
         <div className="auth-floating-info">
           <span className="auth-info-tag">START YOUR JOURNEY</span>
           <h2 className="auth-info-title">Discover Opportunities Suited For You</h2>

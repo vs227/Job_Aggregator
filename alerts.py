@@ -1,5 +1,4 @@
 import os
-# pyrefly: ignore [missing-import]
 import resend
 from database import supabase
 
@@ -8,25 +7,27 @@ resend.api_key = os.getenv("RESEND_API_KEY")
 def send_email(to_email, keyword, jobs):
     jobs_list_html = ""
     text_body = f"New Job Alerts for '{keyword.title()}'\n\nWe found the following new jobs matching your preference:\n\n"
-    
+
     for job in jobs[:10]:
         salary_text = f"Rs. {job['salary']}" if job.get("salary") else "Not specified"
-        
+
         jobs_list_html += f"""
-        <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #e2e8f0; border-radius: 6px; font-family: sans-serif;">
-            <h3 style="margin: 0 0 10px 0;"><a href="{job['job_url']}" style="color: #2b6cb0; text-decoration: none;">{job['title']}</a></h3>
-            <p style="margin: 0 0 5px 0; color: #4a5568;"><strong>Company:</strong> {job['company']}</p>
-            <p style="margin: 0 0 5px 0; color: #4a5568;"><strong>Location:</strong> {job['location']}</p>
-            <p style="margin: 0; color: #4a5568;"><strong>Salary:</strong> {salary_text}</p>
+        <div style="margin-bottom: 20px; padding: 15px; border: 1px solid rgb(226, 232, 240); border-radius: 8px; background-color: rgb(255, 255, 255);">
+            <h3 style="margin: 0 0 10px 0;">
+                <a href="{job['job_url']}" style="color: rgb(37, 99, 235); text-decoration: none; font-size: 1.1rem; font-weight: 600;">{job['title']}</a>
+            </h3>
+            <p style="margin: 0 0 5px 0; color: rgb(71, 85, 105); font-size: 0.95rem;"><strong>Company:</strong> {job['company']}</p>
+            <p style="margin: 0 0 5px 0; color: rgb(71, 85, 105); font-size: 0.95rem;"><strong>Location:</strong> {job['location']}</p>
+            <p style="margin: 0; color: rgb(71, 85, 105); font-size: 0.95rem;"><strong>Salary:</strong> {salary_text}</p>
         </div>
         """
-        
+
         text_body += f"- {job['title']} at {job['company']}\n  Location: {job['location']}\n  Salary: {salary_text}\n  Link: {job['job_url']}\n\n"
 
     html_body = f"""
-    <div style="max-width: 600px; margin: 0 auto; font-family: sans-serif;">
-        <h2 style="color: #2d3748;">New Job Alerts for "{keyword.title()}"</h2>
-        <p style="color: #718096; margin-bottom: 20px;">We found the following new jobs matching your preference:</p>
+    <div style="max-width: 600px; margin: 0 auto; font-family: sans-serif; background-color: rgb(248, 250, 252); padding: 20px; border-radius: 12px;">
+        <h2 style="color: rgb(30, 41, 59); margin-top: 0; border-bottom: 2px solid rgb(59, 130, 246); padding-bottom: 10px;">New Job Alerts for '{keyword.title()}'</h2>
+        <p style="color: rgb(71, 85, 105); font-size: 1rem; margin-bottom: 20px;">We found the following new jobs matching your preference:</p>
         {jobs_list_html}
     </div>
     """
@@ -41,7 +42,6 @@ def send_email(to_email, keyword, jobs):
         })
     except Exception as e:
         print(f"Error sending alert email to {to_email}: {e}")
-
 
 def match_and_send_alerts(new_jobs):
     if not new_jobs:
@@ -123,4 +123,3 @@ def send_immediate_alerts(user_id, keyword, location=None, min_salary=None):
 
     if matched_jobs:
         send_email(email, keyword, matched_jobs)
-

@@ -170,18 +170,20 @@
 }
 
 .search-submit-btn {
-  background: var(--accent-blue);
-  color: white;
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
   font-size: 0.95rem;
   font-weight: 600;
   padding: 12px 28px;
   border-radius: 9999px;
   transition: var(--transition);
+  border: 1px solid var(--btn-primary-border);
 }
 
 .search-submit-btn:hover {
-  background: var(--accent-blue-hover);
-  box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+  background: var(--btn-primary-hover-bg);
+  border-color: var(--btn-primary-hover-border);
+  box-shadow: var(--btn-primary-shadow);
 }
 
 @keyframes fadeInDropdown {

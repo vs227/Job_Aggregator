@@ -58,18 +58,21 @@
 .btn-primary-glow {
   padding: 14px 28px;
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-blue-hover) 100%);
-  color: white;
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
   font-weight: 600;
   font-size: 0.95rem;
-  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+  box-shadow: var(--btn-primary-shadow);
   transition: all 0.3s ease;
   cursor: pointer;
+  border: 1px solid var(--btn-primary-border);
 }
 
 .btn-primary-glow:hover {
+  background: var(--btn-primary-hover-bg);
+  border-color: var(--btn-primary-hover-border);
   transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.45);
+  box-shadow: var(--btn-primary-shadow);
 }
 
 /* 2. WORKFLOW PIPELINE SECTION */

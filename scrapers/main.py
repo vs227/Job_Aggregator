@@ -7,6 +7,7 @@ import time
 from dotenv import load_dotenv
 import requests
 from database import supabase
+from RAG import get_embedding
 
 load_dotenv()
 
@@ -24,7 +25,6 @@ KEYWORDS = [
     "finance manager",
 ]
 
-
 def get_or_create_source():
     existing = supabase.table("job_sources").select("*").eq("source_name", "Adzuna").execute()
     if existing.data:
@@ -32,14 +32,12 @@ def get_or_create_source():
     new = supabase.table("job_sources").insert({"source_name": "Adzuna", "source_url": "https://www.adzuna.in"}).execute()
     return new.data[0]["id"]
 
-
 def job_exists(job_url, title, company):
     if job_url and supabase.table("jobs").select("id").eq("job_url", job_url).execute().data:
         return True
     if title and company:
         return bool(supabase.table("jobs").select("id").eq("title", title).eq("company", company).execute().data)
     return False
-
 
 def fetch_jobs(keyword, page=1):
     try:
@@ -57,7 +55,6 @@ def fetch_jobs(keyword, page=1):
     except Exception as e:
         print(f"  [ERROR] {e}")
         return []
-
 
 def main():
     print("Starting Adzuna job import...")
@@ -97,10 +94,17 @@ def main():
                     skipped += 1
                     continue
 
+                embedding = None
+                try:
+                    embedding = get_embedding(f"{title} {desc or ''}")
+                except Exception as e:
+                    print(f"  [WARNING] Failed to generate embedding: {e}")
+
                 res = supabase.table("jobs").insert({
                     "title": title, "company": company, "location": location,
                     "salary": salary, "job_type": "Full-time",
                     "description": desc, "job_url": url, "source_id": source_id,
+                    "embedding": embedding
                 }).execute()
 
                 if res.data:
@@ -118,8 +122,6 @@ def main():
     if new_jobs:
         from alerts import match_and_send_alerts
         match_and_send_alerts(new_jobs)
-
-
 
 if __name__ == "__main__":
     main()

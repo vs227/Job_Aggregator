@@ -6,7 +6,6 @@ import { useAuth } from '../context/AuthContext';
 import logo from '../assets/logo.png';
 import './Navbar.css';
 
-
 function Navbar() {
   const { isAuthenticated, user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
