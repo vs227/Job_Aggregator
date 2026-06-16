@@ -16,7 +16,6 @@ import ResumePage from './pages/ResumePage';
 
 import { useEffect } from 'react';
 import vid2 from './assets/vid2.mp4';
-import vidin from './assets/vidin.mp4';
 import './App.css';
 
 function Layout() {
