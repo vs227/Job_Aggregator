@@ -7,15 +7,11 @@ python-jose
 passlib[bcrypt]
 bcrypt==4.0.1
 email-validator
-playwright
-beautifulsoup4
-httpx
-lxml
 requests
 resend
-google-generativeai
 pypdf
 python-docx
 python-multipart
 APScheduler
-
+langchain
+langchain-google-genai

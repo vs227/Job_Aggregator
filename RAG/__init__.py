@@ -1,27 +1,50 @@
 import os
 import json
 import traceback
+from database import supabase
+from pydantic import BaseModel, Field
+from typing import List
 from pypdf import PdfReader
 from docx import Document
-from database import supabase
-import google.generativeai as genai
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_core.prompts import ChatPromptTemplate
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+if "GEMINI_API_KEY" in os.environ and "GOOGLE_API_KEY" not in os.environ:
+    os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
 
+embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", max_retries=1)
 
-def _clean_json(text):
-    text = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    return json.loads(text)
+PROFILE_PROMPT = ChatPromptTemplate.from_template(
+    "Extract structured data from this resume.\n\n"
+    "Rules:\n"
+    "- top_skills: max 8 skills\n"
+    "- preferred_roles: max 5 roles\n"
+    "- only extract what's mentioned.\n\n"
+    "RESUME:\n{resume_text}"
+)
 
+ANALYSIS_PROMPT = ChatPromptTemplate.from_template(
+    "Analyze this resume against the list of matched jobs.\n\n"
+    "Rules:\n"
+    "- matched_skills: max 6 items\n"
+    "- missing_skills: max 5 items\n\n"
+    "RESUME:\n{resume_text}\n\n"
+    "JOBS:\n{jobs_json}"
+)
 
-def _gemini(prompt, temp=0.3, max_tokens=1024):
-    model = genai.GenerativeModel("gemini-2.0-flash-lite")
-    res = model.generate_content(prompt, generation_config={
-        "response_mime_type": "application/json",
-        "temperature": temp,
-        "max_output_tokens": max_tokens,
-    }, request_options={"timeout": 25.0})
-    return _clean_json(res.text)
+CHAT_PROMPT = ChatPromptTemplate.from_template(
+    "You are HirePulse Pivot AI, an expert career assistant. Answer the user query using the resume context, chat history, and matched jobs.\n\n"
+    "RESUME CONTEXT:\n{resume}\n{missing_text}\n\n"
+    "MATCHED JOBS:\n{jobs_json}\n\n"
+    "VALID JOB IDs (Only match/return jobs that have these IDs!): {valid_ids}\n"
+    "TOTAL AVAILABLE JOBS: {total_jobs} | SAVED JOBS: {saved_jobs_count}\n\n"
+    "USER QUERY: {query}\n\n"
+    "RULES:\n"
+    "1. Resume/CV related questions -> Provide constructive feedback or career advice.\n"
+    "2. Job recommendation/matching questions -> Identify matches from the MATCHED JOBS list, provide reasons, and return them. Never invent or hallucinate job IDs outside of the VALID JOB IDs list!\n"
+    "3. If query is a general greeting or unrelated to job recommendations/matching, keep 'jobs' empty.\n"
+    "4. Mention missing skills in career advice if available."
+)
 
 
 def extract_text(file_path):
@@ -56,11 +79,11 @@ def extract_skills_local(text):
 
 
 def get_embedding(text, task="RETRIEVAL_DOCUMENT"):
-    return genai.embed_content(
-        model="models/gemini-embedding-001",
-        content=" ".join(text.split()),
-        task_type=task,
-    )["embedding"]
+    cleaned = " ".join(text.split())
+    if task == "RETRIEVAL_QUERY":
+        return embeddings.embed_query(cleaned)
+    else:
+        return embeddings.embed_documents([cleaned])[0]
 
 
 def save_resume(user_id, text, embedding):
@@ -84,25 +107,50 @@ def match_jobs(query_embedding, threshold=0.25, limit=5):
     return res.data or []
 
 
-def extract_ai_profile(resume_text):
-    prompt = f"""Extract structured data from this resume. Respond with JSON only:
-{{
-  "top_skills": ["skill1", "skill2"],
-  "experience_level": "fresher|junior|mid|senior",
-  "preferred_roles": ["role1", "role2"],
-  "education": "highest degree",
-  "projects_summary": "brief summary"
-}}
-Rules: top_skills max 8, preferred_roles max 5, only extract what's mentioned.
+class AIProfile(BaseModel):
+    top_skills: List[str] = Field(description="Top skills from the resume, maximum 8 items")
+    experience_level: str = Field(description="Experience level: fresher, junior, mid, or senior")
+    preferred_roles: List[str] = Field(description="Preferred roles from the resume, maximum 5 items")
+    education: str = Field(description="Highest degree or educational qualification details")
+    projects_summary: str = Field(description="Brief summary of projects mentioned in the resume")
 
-RESUME:
-{resume_text}"""
+
+class ResumeAnalysis(BaseModel):
+    match_score: int = Field(description="Match score out of 100 representing how well the resume matches the jobs")
+    matched_skills: List[str] = Field(description="Skills present in both resume and jobs, maximum 6 items")
+    missing_skills: List[str] = Field(description="Skills mentioned in the jobs but missing from the resume, maximum 5 items")
+    recommendation: str = Field(description="Brief advice or career recommendation for the candidate")
+
+
+class JobMatchReason(BaseModel):
+    id: int = Field(description="The job ID from the valid jobs list")
+    match_reason: str = Field(description="Reason why this job matches the query/resume")
+
+
+class ChatResponse(BaseModel):
+    text: str = Field(description="Constructive feedback, answer, or advice to the user")
+    jobs: List[JobMatchReason] = Field(description="List of matched jobs with reasons. If no relevant jobs match or the user query is not about job recommendations/matching, return an empty list.")
+
+
+def extract_ai_profile(resume_text):
     try:
-        return _gemini(prompt, temp=0.1)
+        structured_llm = ChatGoogleGenerativeAI(
+            model="gemini-2.0-flash-lite",
+            temperature=0.1,
+            max_retries=1
+        ).with_structured_output(AIProfile)
+        result = (PROFILE_PROMPT | structured_llm).invoke({"resume_text": resume_text})
+        return result.model_dump()
     except Exception as e:
         print(f"Profile extraction failed: {e}")
         skills = extract_skills_local(resume_text)
-        return {"top_skills": skills[:8], "experience_level": "fresher", "preferred_roles": [], "education": "", "projects_summary": ""}
+        return {
+            "top_skills": skills[:8],
+            "experience_level": "fresher",
+            "preferred_roles": [],
+            "education": "",
+            "projects_summary": "",
+        }
 
 
 def save_ai_profile(user_id, profile):
@@ -124,68 +172,70 @@ def get_ai_profile(user_id):
 
 
 def analyze_resume_data(resume_text, matched_jobs):
-    jobs_summary = [{"title": j.get("title"), "company": j.get("company"), "description": (j.get("description") or "")[:300]} for j in matched_jobs]
-
-    prompt = f"""Analyze this resume against the jobs. Respond with JSON only:
-{{
-  "match_score": 85,
-  "matched_skills": ["Python", "SQL"],
-  "missing_skills": ["Docker", "AWS"],
-  "recommendation": "brief advice"
-}}
-matched_skills max 6, missing_skills max 5.
-
-RESUME:
-{resume_text}
-
-JOBS:
-{json.dumps(jobs_summary, indent=2)}"""
+    jobs_summary = [
+        {
+            "title": j.get("title"),
+            "company": j.get("company"),
+            "description": (j.get("description") or "")[:300]
+        }
+        for j in matched_jobs
+    ]
     try:
-        return _gemini(prompt, temp=0.2)
+        structured_llm = ChatGoogleGenerativeAI(
+            model="gemini-2.0-flash-lite",
+            temperature=0.2,
+            max_retries=1
+        ).with_structured_output(ResumeAnalysis)
+        result = (ANALYSIS_PROMPT | structured_llm).invoke({
+            "resume_text": resume_text,
+            "jobs_json": json.dumps(jobs_summary, indent=2)
+        })
+        return result.model_dump()
     except Exception as e:
         print(f"Resume analysis error: {e}")
         traceback.print_exc()
         skills = extract_skills_local(resume_text)
-        return {"match_score": 0, "matched_skills": skills[:6], "missing_skills": [], "recommendation": "AI service unavailable. Skills extracted locally from your resume."}
+        return {
+            "match_score": 0,
+            "matched_skills": skills[:6],
+            "missing_skills": [],
+            "recommendation": "AI service unavailable. Skills extracted locally from your resume.",
+        }
 
 
 def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, missing_skills=None):
     valid_ids = [j.get("id") for j in jobs]
-    jobs_input = [{"id": j.get("id"), "title": j.get("title"), "company": j.get("company"), "description": (j.get("description") or "")[:400]} for j in jobs]
-
+    jobs_input = [
+        {
+            "id": j.get("id"),
+            "title": j.get("title"),
+            "company": j.get("company"),
+            "description": (j.get("description") or "")[:400]
+        }
+        for j in jobs
+    ]
     missing_text = f"\nMISSING SKILLS: {json.dumps(missing_skills)}" if missing_skills else ""
-
-    prompt = f"""You are HirePulse Pivot AI. Respond ONLY with JSON:
-{{
-  "text": "your response",
-  "jobs": [{{ "id": job_id, "match_reason": "why it matches" }}]
-}}
-
-RESUME:
-{resume}
-{missing_text}
-
-MATCHED JOBS:
-{json.dumps(jobs_input, indent=2)}
-
-VALID IDs: {json.dumps(valid_ids)}
-TOTAL JOBS: {total_jobs} | SAVED: {saved_jobs_count}
-
-USER: {query}
-
-RULES:
-1. Only valid JSON
-2. Resume questions → constructive feedback
-3. Job questions → return matches with reasons
-4. ONLY use IDs from VALID IDs. Never invent IDs.
-5. No relevant jobs → return "jobs": []
-6. Mention missing skills in career advice if available"""
-
+    
     try:
-        return _gemini(prompt, temp=0.7)
-    except Exception:
+        structured_llm = ChatGoogleGenerativeAI(
+            model="gemini-2.0-flash-lite",
+            temperature=0.7,
+            max_retries=1
+        ).with_structured_output(ChatResponse)
+        result = (CHAT_PROMPT | structured_llm).invoke({
+            "resume": resume,
+            "missing_text": missing_text,
+            "jobs_json": json.dumps(jobs_input, indent=2),
+            "valid_ids": json.dumps(valid_ids),
+            "total_jobs": total_jobs,
+            "saved_jobs_count": saved_jobs_count,
+            "query": query
+        })
+        return result.model_dump()
+    except Exception as e:
+        print(f"generate_answer error: {e}")
         traceback.print_exc()
-        return _fallback(query, jobs, total_jobs, saved_jobs_count)
+        return _fallback(query, jobs, total_jobs, saved_count=saved_jobs_count)
 
 
 def _fallback(query, jobs, total_jobs, saved_count):
