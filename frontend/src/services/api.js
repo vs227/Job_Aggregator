@@ -9,10 +9,16 @@ function getHeaders() {
 }
 
 async function request(endpoint, options = {}) {
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
-    headers: getHeaders(),
-    ...options,
-  });
+  let res;
+  try {
+    res = await fetch(`${BASE_URL}${endpoint}`, {
+      headers: getHeaders(),
+      ...options,
+    });
+  } catch (err) {
+    console.error("Fetch network error:", err);
+    throw new Error(`Network connection error. Is the backend server running at ${BASE_URL}?`);
+  }
 
   if (res.status === 401) {
     localStorage.removeItem('token');
@@ -20,10 +26,23 @@ async function request(endpoint, options = {}) {
     throw new Error('Unauthorized');
   }
 
-  const data = await res.json();
+  let data;
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    try {
+      data = await res.json();
+    } catch (err) {
+      console.error("JSON parsing error:", err);
+      throw new Error("Invalid response format received from server.");
+    }
+  } else {
+    const text = await res.text();
+    console.error("Non-JSON response received:", text);
+    throw new Error(`Server error (${res.status}): ${text.substring(0, 100)}`);
+  }
 
   if (!res.ok) {
-    throw new Error(data.detail || 'Something went wrong');
+    throw new Error(data?.detail || 'Something went wrong');
   }
 
   return data;
