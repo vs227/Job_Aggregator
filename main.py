@@ -7,7 +7,12 @@ import shutil
 import json
 import tempfile
 import os
-from RAG import extract_text, get_embedding, save_resume, get_resume, match_jobs, generate_answer, analyze_resume_data
+from RAG import (
+    extract_text, get_embedding, save_resume, get_resume,
+    match_jobs, generate_answer, analyze_resume_data,
+    extract_ai_profile, save_ai_profile, get_ai_profile,
+    extract_skills_local,
+)
 
 app = FastAPI()
 
@@ -246,99 +251,93 @@ def upload_resume(file: UploadFile = File(...), user_id: int = Depends(get_curre
         temp_path = temp.name
     try:
         text = extract_text(temp_path)
-        embedding = get_embedding(text)
-        save_resume(user_id, text, embedding)
 
-        matched = match_jobs(embedding, limit=10)
-        analysis = analyze_resume_data(text, matched)
-
-        return {
-            "message": "Resume uploaded successfully",
-            "analysis": analysis
-        }
+        try:
+            embedding = get_embedding(text)
+            save_resume(user_id, text, embedding)
+            matched = match_jobs(embedding, limit=10)
+            analysis = analyze_resume_data(text, matched)
+            profile = extract_ai_profile(text)
+            profile["job_fit_score"] = analysis.get("match_score", 0)
+            profile["missing_skills"] = analysis.get("missing_skills", [])
+            save_ai_profile(user_id, profile)
+            return {"message": "Resume uploaded successfully", "analysis": analysis, "profile": profile}
+        except Exception:
+            skills = extract_skills_local(text)
+            analysis = {
+                "match_score": 0,
+                "matched_skills": skills[:6],
+                "missing_skills": [],
+                "recommendation": "AI service is currently unavailable. Skills were extracted locally from your resume.",
+            }
+            profile = {"top_skills": skills[:8], "experience_level": "fresher", "preferred_roles": [], "education": "", "projects_summary": ""}
+            return {"message": "Resume parsed (AI unavailable)", "analysis": analysis, "profile": profile}
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
+
+def _job_to_dict(job_data, reason="Matches your profile."):
+    return {
+        "id": job_data["id"], "title": job_data["title"],
+        "company": job_data["company"], "location": job_data["location"],
+        "salary": job_data["salary"], "description": job_data["description"],
+        "job_url": job_data.get("job_url", "#"), "match_reason": reason,
+    }
+
+
+def _fill_job_urls(matched_jobs_dict):
+    if not matched_jobs_dict:
+        return
+    try:
+        job_ids = list(matched_jobs_dict.keys())
+        db_jobs = supabase.table("jobs").select("id, job_url").in_("id", job_ids).execute().data or []
+        url_map = {j["id"]: j.get("job_url") for j in db_jobs}
+        for j_id, job in matched_jobs_dict.items():
+            job.setdefault("job_url", url_map.get(j_id, "#"))
+    except Exception as e:
+        print(f"Error fetching job URLs: {e}")
+
 
 @app.post("/resume/chat")
 def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_current_user)):
     resume = get_resume(user_id)
     if not resume:
         raise HTTPException(status_code=400, detail="Please upload your resume first")
-    query_emb = get_embedding(chat_input.message, task="RETRIEVAL_QUERY")
-    resume_emb = resume.get("embedding")
-    if resume_emb:
-        if isinstance(resume_emb, str):
-            try:
-                resume_emb = json.loads(resume_emb)
-            except Exception:
-                resume_emb = [float(x) for x in resume_emb.strip("[]").split(",") if x.strip()]
-        search_emb = [(r + q) / 2 for r, q in zip(resume_emb, query_emb)]
-    else:
-        search_emb = query_emb
 
+    ai_profile = get_ai_profile(user_id)
+    if ai_profile:
+        skills = ", ".join(ai_profile.get("top_skills") or [])
+        roles = ", ".join(ai_profile.get("preferred_roles") or [])
+        context = f"Skills: {skills}. Roles: {roles}. Query: {chat_input.message}"
+    else:
+        context = f"Resume: {resume['resume_text'][:500]}\nQuery: {chat_input.message}"
+
+    search_emb = get_embedding(context, task="RETRIEVAL_QUERY")
     matched_jobs = match_jobs(search_emb, limit=5)
-    db_count = 0
-    saved_count = 0
+
+    db_count, saved_count = 0, 0
     try:
-        count_res = supabase.table("jobs").select("id", count="exact").limit(0).execute()
-        db_count = count_res.count or 0
-        saved_res = supabase.table("saved_jobs").select("id", count="exact").eq("user_id", user_id).limit(0).execute()
-        saved_count = saved_res.count or 0
+        db_count = supabase.table("jobs").select("id", count="exact").limit(0).execute().count or 0
+        saved_count = supabase.table("saved_jobs").select("id", count="exact").eq("user_id", user_id).limit(0).execute().count or 0
     except Exception:
         pass
 
+    missing_skills = (ai_profile.get("missing_skills") or []) if ai_profile else []
     ai_result = generate_answer(
-        resume=resume["resume_text"],
-        jobs=matched_jobs,
-        query=chat_input.message,
-        total_jobs=db_count,
-        saved_jobs_count=saved_count
+        resume=resume["resume_text"], jobs=matched_jobs, query=chat_input.message,
+        total_jobs=db_count, saved_jobs_count=saved_count, missing_skills=missing_skills,
     )
 
     matched_jobs_dict = {j["id"]: j for j in matched_jobs}
-    if matched_jobs and any("job_url" not in j for j in matched_jobs):
-        try:
-            job_ids = [j["id"] for j in matched_jobs]
-            db_jobs = supabase.table("jobs").select("id, job_url").in_("id", job_ids).execute().data or []
-            db_url_map = {j["id"]: j.get("job_url") for j in db_jobs}
-            for j_id, job in matched_jobs_dict.items():
-                job["job_url"] = db_url_map.get(j_id, "#")
-        except Exception as e:
-            print(f"Error fetching job URLs: {e}")
-            for job in matched_jobs_dict.values():
-                if "job_url" not in job:
-                    job["job_url"] = "#"
+    _fill_job_urls(matched_jobs_dict)
 
-    structured_jobs = []
+    structured = []
     for item in ai_result.get("jobs", []):
-        job_id = item.get("id")
-        if job_id in matched_jobs_dict:
-            job_data = matched_jobs_dict[job_id]
-            structured_jobs.append({
-                "id": job_data["id"],
-                "title": job_data["title"],
-                "company": job_data["company"],
-                "location": job_data["location"],
-                "salary": job_data["salary"],
-                "description": job_data["description"],
-                "job_url": job_data.get("job_url", "#"),
-                "match_reason": item.get("match_reason", "A suitable match for your profile.")
-            })
-    if ai_result.get("fallback") and not structured_jobs and matched_jobs:
-        for job_data in matched_jobs_dict.values():
-            structured_jobs.append({
-                "id": job_data["id"],
-                "title": job_data["title"],
-                "company": job_data["company"],
-                "location": job_data["location"],
-                "salary": job_data["salary"],
-                "description": job_data["description"],
-                "job_url": job_data.get("job_url", "#"),
-                "match_reason": "Matches key skills in your profile."
-            })
+        if item.get("id") in matched_jobs_dict:
+            structured.append(_job_to_dict(matched_jobs_dict[item["id"]], item.get("match_reason", "A suitable match.")))
 
-    return {
-        "response": ai_result.get("text", "Here are the jobs that match your profile:"),
-        "matches": structured_jobs
-    }
+    if ai_result.get("fallback") and not structured:
+        structured = [_job_to_dict(j, "Matches key skills in your profile.") for j in matched_jobs_dict.values()]
+
+    return {"response": ai_result.get("text", "Here are the jobs that match your profile:"), "matches": structured}
