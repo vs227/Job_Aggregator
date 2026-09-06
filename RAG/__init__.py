@@ -48,11 +48,15 @@ CHAT_PROMPT = ChatPromptTemplate.from_template(
     "USER QUERY: {query}\n\n"
     "STRICT FACTUAL & INTENT RULES:\n"
     "1. ABSOLUTE TRUTH RULE: Rely ONLY on the exact skills, programming languages, tools, and experience listed in CANDIDATE TOP SKILLS and CANDIDATE RESUME CONTEXT. NEVER invent, hallucinate, assume, or list any programming language (such as C++, C#, Ruby, etc.) or skill that is NOT explicitly present in CANDIDATE TOP SKILLS or RESUME CONTEXT!\n"
-    "2. ONLY attach/return jobs in the 'jobs' list if the user explicitly asks for job suggestions, recommendations, or matches (e.g. 'suggest me jobs', 'show matching jobs', 'recommend roles', 'find jobs', 'jobs for me').\n"
-    "3. If the user query is a greeting ('hi', 'hello'), a resume question, career advice, or technical question, KEEP THE 'jobs' LIST COMPLETELY EMPTY ([])! Focus strictly on answering in 'text'.\n"
-    "4. When the user DOES explicitly ask to suggest jobs, evaluate each candidate job against their top skills and return ONLY suitable jobs with custom match reasons.\n"
-    "5. NO MATCHING JOBS RULE: If there are no suitable jobs matching the user's profile in the candidate jobs list or if 'jobs' is empty, state clearly in 'text': 'Currently, there are no suitable job postings matching your profile in our database. Please set an email alert for your preferred roles in the **Job Alerts** section so you get notified instantly when new matching positions are added!'\n"
-    "6. FORMATTING RULE: Write your text response using well-structured, clear paragraphs and clean bullet points (`- `) or numbered steps (`1. `, `2. `) whenever providing recommendations, skill advice, or career steps. Use **bolding** for key terms."
+    "2. RESUME OPTIMIZATION VS JOB MATCH INTENT:\n"
+    "   - If the user query is asking for resume recommendations, resume feedback, optimizations, resume improvements, formatting, or project advice, KEEP 'jobs' COMPLETELY EMPTY ([])! Provide high-value, highly specific resume advice in 'text'.\n"
+    "   - ONLY attach/return jobs in the 'jobs' list if the user explicitly asks for job postings or job suggestions (e.g. 'suggest jobs', 'find jobs', 'show matching jobs', 'job openings for me').\n"
+    "3. When the user DOES explicitly ask for job suggestions, evaluate candidate jobs against their skills and return ONLY suitable jobs with custom match reasons.\n"
+    "4. NO MATCHING JOBS RULE: If the user asks for job suggestions but there are no suitable jobs matching their profile in the database, state clearly in 'text': 'Currently, there are no suitable job postings matching your profile in our database. Please set an email alert for your preferred roles in the **Job Alerts** section so you get notified instantly when new matching positions are added!'\n"
+    "5. BEACON STANDARD PRESENTATION & FORMATTING RULE:\n"
+    "   - Always structure your response into clean, spacious paragraphs separated by double line breaks (`\n\n`).\n"
+    "   - ALWAYS place EVERY bullet point (`- `) or numbered recommendation (`1. `, `2. `, `3. `) on its OWN SEPARATE LINE with double line breaks before each item.\n"
+    "   - ALWAYS use **bold titles** for each recommendation step (e.g., `1. **Quantify Metrics**: Add quantifiable results...`)."
 )
 
 

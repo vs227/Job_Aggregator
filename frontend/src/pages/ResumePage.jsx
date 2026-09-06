@@ -122,7 +122,12 @@ function ResumePage() {
   function renderFormattedMessage(text) {
     if (!text) return null;
 
-    const lines = text.split('\n');
+    // Pre-process text to separate squished numbers/bullets onto newlines (e.g. "recommendations:1. **Title**" -> "recommendations:\n\n1. **Title**")
+    const preparedText = text
+      .replace(/([.:;!a-zA-Z0-9])\s*(\d+\.\s+\*\*)/g, '$1\n\n$2')
+      .replace(/([.:;!a-zA-Z0-9])\s*([*\-•]\s+\*\*)/g, '$1\n\n$2');
+
+    const lines = preparedText.split('\n');
     return lines.map((line, idx) => {
       const cleanLine = line.trim();
       if (!cleanLine) return <div key={idx} style={{ height: '8px' }} />;
@@ -147,17 +152,17 @@ function ResumePage() {
       if (isBullet) {
         const isNumber = /^\d+\./.test(bulletSymbol);
         return (
-          <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', margin: '6px 0 6px 4px', lineHeight: '1.6' }}>
-            <span style={{ color: 'var(--accent-blue)', fontWeight: isNumber ? 700 : 900, fontSize: isNumber ? '0.85rem' : '1.1rem', minWidth: '18px', flexShrink: 0, marginTop: '-1px' }}>
+          <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', margin: '8px 0 8px 4px', lineHeight: '1.65' }}>
+            <span style={{ color: 'var(--accent-blue)', fontWeight: isNumber ? 700 : 900, fontSize: isNumber ? '0.85rem' : '1.1rem', minWidth: '20px', flexShrink: 0, marginTop: '1px' }}>
               {isNumber ? bulletSymbol : '•'}
             </span>
-            <span style={{ flex: 1, color: 'var(--text-primary)', fontSize: '0.9rem' }}>{formattedContent}</span>
+            <span style={{ flex: 1, color: 'var(--text-primary)', fontSize: '0.9rem', lineHeight: '1.65' }}>{formattedContent}</span>
           </div>
         );
       }
 
       return (
-        <div key={idx} style={{ margin: '6px 0', lineHeight: '1.6', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+        <div key={idx} style={{ margin: '8px 0', lineHeight: '1.65', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
           {formattedContent}
         </div>
       );
