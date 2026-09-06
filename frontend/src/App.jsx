@@ -14,6 +14,7 @@ import AlertsPage from './pages/AlertsPage';
 import ResumePage from './pages/ResumePage';
 
 import { useEffect } from 'react';
+import { pingBackend } from './services/api';
 import vid2 from './assets/vid2.mp4';
 import './App.css';
 
@@ -43,6 +44,7 @@ function App() {
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') || 'dark';
     document.documentElement.setAttribute('data-theme', savedTheme);
+    pingBackend();
   }, []);
 
   return (

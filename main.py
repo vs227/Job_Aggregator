@@ -106,11 +106,11 @@ def manual_jobs_refresh(background_tasks: BackgroundTasks, user_id: str = Depend
     background_tasks.add_task(refresh_and_import_jobs, 50)
     return {"message": "Job refresh initiated in background. Outdated jobs will be deleted and 50 fresh ones loaded."}
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def home():
     return {
-        "message": "Welcome to the Job Aggregator service"
-
+        "message": "Welcome to the Job Aggregator service",
+        "status": "online"
     }
 
 @app.post("/register")
@@ -137,7 +137,7 @@ def register(user: RegisterUser):
 
 @app.post("/login")
 def login(user: LoginUser):
-    res = (supabase.table("users").select("*").eq("email", user.email).execute())
+    res = (supabase.table("users").select("id, email, password_hash").eq("email", user.email).execute())
 
     if not res.data:
         raise HTTPException(
@@ -514,4 +514,10 @@ def logout_user_session(user_id: int = Depends(get_current_user)):
     except Exception as e:
         print(f"Notice purging user resume embeddings on logout: {e}")
     return {"message": "Logged out successfully and user resume data erased."}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
 

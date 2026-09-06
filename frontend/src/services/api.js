@@ -8,6 +8,10 @@ function getHeaders() {
   return headers;
 }
 
+export function pingBackend() {
+  return fetch(`${BASE_URL}/`, { method: 'GET' }).catch(() => {});
+}
+
 async function request(endpoint, options = {}) {
   let res;
   try {
