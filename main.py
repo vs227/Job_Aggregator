@@ -14,7 +14,12 @@ from models import (
     LoginUser, ForgotPasswordSendOtpInput, ForgotPasswordResetInput,
     JobsInput, SavedJob, AlertPreference, SearchJob, SourceInput, ResumeChatInput
 )
-from alerts import send_otp_email, send_password_reset_otp_email
+from alerts import send_otp_email, send_password_reset_otp_email, test_smtp_diagnostic
+
+@app.get("/debug/test-smtp")
+def debug_test_smtp(to: str = "parasff0007@gmail.com"):
+    return test_smtp_diagnostic(to)
+
 import shutil
 import json
 import tempfile

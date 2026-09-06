@@ -63,6 +63,51 @@ def _send_smtp_email(to_email: str, subject: str, text_body: str, html_body: str
         return False
 
 
+def test_smtp_diagnostic(to_email: str) -> dict:
+    smtp_email, smtp_password = _get_smtp_credentials()
+    results = {
+        "to_email": to_email,
+        "smtp_email_found": smtp_email,
+        "smtp_password_length": len(smtp_password) if smtp_password else 0,
+        "ssl_465": None,
+        "tls_587": None,
+        "success": False
+    }
+
+    if not smtp_email or not smtp_password:
+        results["error"] = "SMTP_EMAIL or SMTP_PASSWORD missing in environment variables"
+        return results
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "HirePulse SMTP Diagnostic Test"
+    msg["From"] = f"HirePulse AI <{smtp_email}>"
+    msg["To"] = to_email
+    msg.attach(MIMEText("Test email from Render server.", "plain"))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(smtp_email, smtp_password)
+            server.sendmail(smtp_email, to_email, msg.as_string())
+        results["ssl_465"] = "SUCCESS"
+        results["success"] = True
+        return results
+    except Exception as e:
+        results["ssl_465"] = f"FAILED: {type(e).__name__}: {str(e)}"
+
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
+            server.starttls()
+            server.login(smtp_email, smtp_password)
+            server.sendmail(smtp_email, to_email, msg.as_string())
+        results["tls_587"] = "SUCCESS"
+        results["success"] = True
+    except Exception as e:
+        results["tls_587"] = f"FAILED: {type(e).__name__}: {str(e)}"
+
+    return results
+
+
+
 def send_email(to_email, keyword, jobs, profile=None):
     jobs_html = ""
     text_body = f"Job Alerts for '{keyword.title()}'\n\n"
