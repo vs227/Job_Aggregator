@@ -8,32 +8,21 @@ from RAG import get_ai_profile
 import json
 import urllib.request
 
-def _get_smtp_credentials():
-    email = (
+def _get_sender_email():
+    return (
+        os.getenv("SENDER_EMAIL") or
         os.getenv("SMTP_EMAIL") or
         os.getenv("SMTP_USER") or
-        os.getenv("MAIL_USERNAME") or
-        os.getenv("EMAIL_HOST_USER") or
-        ""
+        "parasff0007@gmail.com"
     ).strip().strip('"').strip("'")
-
-    password = (
-        os.getenv("SMTP_PASSWORD") or
-        os.getenv("SMTP_PASS") or
-        os.getenv("MAIL_PASSWORD") or
-        os.getenv("EMAIL_HOST_PASSWORD") or
-        ""
-    ).replace(" ", "").strip().strip('"').strip("'")
-
-    return email, password
 
 
 def _send_brevo_api_email(to_email: str, subject: str, html_body: str, sender_name: str = "HirePulse AI") -> bool:
     api_key = (os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY") or "").strip()
     if not api_key:
+        print("[Email Warning] BREVO_API_KEY is not set in environment.")
         return False
-    smtp_email, _ = _get_smtp_credentials()
-    sender_email = smtp_email or os.getenv("SENDER_EMAIL", "parasff0007@gmail.com")
+    sender_email = _get_sender_email()
     try:
         payload = json.dumps({
             "sender": {"name": sender_name, "email": sender_email},
@@ -53,109 +42,64 @@ def _send_brevo_api_email(to_email: str, subject: str, html_body: str, sender_na
         )
         with urllib.request.urlopen(req, timeout=12) as response:
             if response.status in (200, 201):
-                print(f"[Brevo HTTP API Success] Email sent to {to_email}")
+                print(f"[Brevo API Success] Email sent to {to_email}")
                 return True
     except Exception as e:
-        print(f"[Brevo HTTP API Error] Failed to send email via Brevo API: {e}")
+        print(f"[Brevo API Error] Failed to send email via Brevo API: {e}")
     return False
 
 
 def _send_smtp_email(to_email: str, subject: str, text_body: str, html_body: str, sender_name: str = "HirePulse AI") -> bool:
-    # 1. Try Brevo HTTP API (300 emails/day FREE, no domain needed, HTTPS port 443)
+    # Primary: Brevo HTTPS API
     if os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY"):
-        if _send_brevo_api_email(to_email, subject, html_body, sender_name):
-            return True
+        return _send_brevo_api_email(to_email, subject, html_body, sender_name)
 
-    smtp_email, smtp_password = _get_smtp_credentials()
+    # Fallback SMTP if configured
+    smtp_email = _get_sender_email()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").replace(" ", "").strip()
 
-    if not smtp_email or not smtp_password:
-        print(f"[Email Error] No email credentials found in environment. Email to {to_email} skipped.")
+    if not smtp_password:
+        print(f"[Email Error] BREVO_API_KEY is missing. Email to {to_email} skipped.")
         return False
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = f"{sender_name} <{smtp_email}>"
     msg["To"] = to_email
-
     msg.attach(MIMEText(text_body, "plain"))
     msg.attach(MIMEText(html_body, "html"))
 
-    # Try SSL Port 465 first
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=12) as server:
             server.login(smtp_email, smtp_password)
             server.sendmail(smtp_email, to_email, msg.as_string())
-        print(f"[Email Success] Sent email to {to_email} via SSL Port 465")
         return True
-    except Exception as ssl_err:
-        print(f"[Email Notice] SSL Port 465 failed for {to_email}: {ssl_err}. Trying TLS Port 587...")
-
-    # Fallback to TLS Port 587
-    try:
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=12) as server:
-            server.starttls()
-            server.login(smtp_email, smtp_password)
-            server.sendmail(smtp_email, to_email, msg.as_string())
-        print(f"[Email Success] Sent email to {to_email} via TLS Port 587")
-        return True
-    except Exception as tls_err:
-        print(f"[Email Error] Failed to send email to {to_email} via Port 587: {tls_err}")
+    except Exception as err:
+        print(f"[SMTP Error] Failed to send email: {err}")
         return False
 
 
 def test_smtp_diagnostic(to_email: str) -> dict:
-    smtp_email, smtp_password = _get_smtp_credentials()
     brevo_key = (os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY") or "").strip()
+    sender_email = _get_sender_email()
 
     results = {
         "to_email": to_email,
+        "sender_email": sender_email,
         "brevo_api_key_set": bool(brevo_key),
-        "smtp_email_found": smtp_email,
-        "smtp_password_length": len(smtp_password) if smtp_password else 0,
         "brevo_api": None,
-        "ssl_465": None,
-        "tls_587": None,
         "success": False
     }
 
     if brevo_key:
         brevo_ok = _send_brevo_api_email(to_email, "HirePulse Diagnostic Test", "<p>Test email via Brevo HTTPS API from Render</p>")
         results["brevo_api"] = "SUCCESS" if brevo_ok else "FAILED"
-        if brevo_ok:
-            results["success"] = True
-            return results
-
-    if not smtp_email or not smtp_password:
-        results["error"] = "No SMTP credentials set in environment"
+        results["success"] = brevo_ok
         return results
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "HirePulse SMTP Diagnostic Test"
-    msg["From"] = f"HirePulse AI <{smtp_email}>"
-    msg["To"] = to_email
-    msg.attach(MIMEText("Test email from Render server.", "plain"))
-
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
-            server.login(smtp_email, smtp_password)
-            server.sendmail(smtp_email, to_email, msg.as_string())
-        results["ssl_465"] = "SUCCESS"
-        results["success"] = True
-        return results
-    except Exception as e:
-        results["ssl_465"] = f"FAILED: {type(e).__name__}: {str(e)}"
-
-    try:
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
-            server.starttls()
-            server.login(smtp_email, smtp_password)
-            server.sendmail(smtp_email, to_email, msg.as_string())
-        results["tls_587"] = "SUCCESS"
-        results["success"] = True
-    except Exception as e:
-        results["tls_587"] = f"FAILED: {type(e).__name__}: {str(e)}"
-
+    results["error"] = "BREVO_API_KEY missing in environment variables"
     return results
+
 
 
 
