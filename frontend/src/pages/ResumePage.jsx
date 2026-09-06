@@ -32,7 +32,7 @@ function ResumePage() {
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [analysisData, setAnalysisData] = useState(null);
   const [savedJobIds, setSavedJobIds] = useState(new Set());
-  const [remainingQueries, setRemainingQueries] = useState(30);
+  const [remainingTokens, setRemainingTokens] = useState(5000);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -53,8 +53,8 @@ function ResumePage() {
           setAnalysisData(resumeRes.analysis || null);
           setShowAnalysis(true);
         }
-        if (resumeRes && typeof resumeRes.remaining_daily === 'number') {
-          setRemainingQueries(resumeRes.remaining_daily);
+        if (resumeRes && typeof resumeRes.remaining_tokens === 'number') {
+          setRemainingTokens(resumeRes.remaining_tokens);
         }
       } catch (err) {
         console.log("No previous resume analysis found for user.");
@@ -189,8 +189,8 @@ function ResumePage() {
       const data = await chatWithResume(userMsgVal);
       const fullText = data.response || 'No response.';
       const jobs = data.matches || [];
-      if (typeof data.remaining_daily === 'number') {
-        setRemainingQueries(data.remaining_daily);
+      if (typeof data.remaining_tokens === 'number') {
+        setRemainingTokens(data.remaining_tokens);
       }
 
       // Add typing placeholder message
@@ -331,8 +331,8 @@ function ResumePage() {
           <div className="chat-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <span className="chat-header-title">HirePulse Pivot AI</span>
-              <span className="chat-limit-badge" title="Daily AI Chat Query Quota">
-                {remainingQueries}/30 Queries Left Today
+              <span className="chat-limit-badge" title="Strict Rate Limit: 5,000 Tokens per 1 Hour Window">
+                {remainingTokens.toLocaleString()} / 5,000 Tokens (1h Window)
               </span>
             </div>
             <button 

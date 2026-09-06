@@ -45,7 +45,7 @@ CHAT_PROMPT = ChatPromptTemplate.from_template(
     "USER QUERY: {query}\n\n"
     "RULES:\n"
     "1. ABSOLUTE TRUTH: Mention ONLY skills present in CANDIDATE CONTEXT/SKILLS.\n"
-    "2. INTENT SEPARATION: If query asks for resume advice/feedback, return 'jobs': [] and detailed text advice. ONLY attach 'jobs' if user explicitly asks for job suggestions.\n"
+    "2. INTENT SEPARATION: If query asks about resume changes, resume advice, CV improvements, or career guidance, return 'jobs': [] and answer with specific resume recommendations. ONLY attach 'jobs' if the user explicitly asks for job openings or listings to apply for.\n"
     "3. NO MATCHES: If asking for jobs but no matches exist, instruct candidate to set an email alert in Job Alerts.\n"
     "4. FORMATTING: Use clear paragraphs and separate bullet points (`1. **Title**: text`) with double line breaks (`\n\n`)."
 )
@@ -181,14 +181,12 @@ class ChatResponse(BaseModel):
 
 
 GEMINI_MODELS = [
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-2.5-flash",
-    "gemini-flash-latest",
+    "gemini-3.5-flash-lite",
+    "gemini-1.5-flash",
 ]
 
 
-def _call_gemini_structured(prompt_template, input_dict, pydantic_schema, temperature=0.2, max_tokens=800):
+def _call_gemini_structured(prompt_template, input_dict, pydantic_schema, temperature=0.2, max_tokens=400):
     for model_name in GEMINI_MODELS:
         try:
             llm = ChatGoogleGenerativeAI(
@@ -200,7 +198,7 @@ def _call_gemini_structured(prompt_template, input_dict, pydantic_schema, temper
             result = (prompt_template | llm).invoke(input_dict)
             return result.model_dump()
         except Exception as e:
-            print(f"Gemini model '{model_name}' failed or rate-limited: {e}. Trying next model...")
+            print(f"Gemini model '{model_name}' failed or rate-limited: {e}.")
     return None
 
 
@@ -314,18 +312,18 @@ def _call_mistral_llm(resume_slice, user_skills, jobs_json, query):
         f"3. FORMATTING: Use clear paragraphs and separate bullet points (`1. **Title**: text`) with double line breaks (`\n\n`).\n\n"
         f"Return ONLY a valid JSON object matching format: {{\"text\": \"your advice\", \"jobs\": []}}"
     )
-    mistral_models = ["mistral-small-latest", "open-mistral-7b", "mistral-medium-latest"]
+    mistral_models = ["mistral-small-latest"]
     for model in mistral_models:
         payload = {
             "model": model,
             "response_format": {"type": "json_object"},
             "messages": [{"role": "user", "content": prompt_text}],
             "temperature": 0.2,
-            "max_tokens": 800
+            "max_tokens": 400
         }
         try:
-            print(f"Trying Mistral AI model: {model}...")
-            resp = requests.post("https://api.mistral.ai/v1/chat/completions", headers=headers, json=payload, timeout=25)
+            print(f"Trying single Mistral AI model: {model}...")
+            resp = requests.post("https://api.mistral.ai/v1/chat/completions", headers=headers, json=payload, timeout=6)
             if resp.status_code == 200:
                 data = resp.json()
                 raw_content = data["choices"][0]["message"]["content"]
@@ -363,16 +361,16 @@ def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_
         for j in filtered_jobs
     ]
 
-    resume_slice = resume[:1200]
-    skills_str = ", ".join(user_skills[:6])
-    jobs_json = json.dumps(jobs_input)
+    resume_slice = resume[:600]
+    skills_str = ", ".join(user_skills[:4])
+    jobs_json = json.dumps(jobs_input[:3])
 
     res_dict = _call_gemini_structured(CHAT_PROMPT, {
         "resume": resume_slice,
         "user_skills": skills_str,
         "jobs_json": jobs_json,
         "query": query
-    }, ChatResponse, temperature=0.2)
+    }, ChatResponse, temperature=0.2, max_tokens=400)
 
     if res_dict:
         return res_dict
@@ -388,9 +386,32 @@ def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_
 
 def _fallback(query, jobs, total_jobs, saved_count, user_skills=None):
     skills_fmt = ", ".join(user_skills[:5]) if user_skills else "your technical domain"
-    query_lower = query.lower()
+    query_lower = query.strip().lower()
 
-    is_job_request = any(w in query_lower for w in ["job", "recommend", "opening", "opportunity", "role", "vacanc", "find", "suggest", "position", "apply", "hii", "hi", "hello"])
+    # Check for simple greeting intent
+    greetings = {"hi", "hii", "hello", "hey", "hi there", "hello there", "good morning", "good evening"}
+    if query_lower in greetings or any(query_lower.startswith(g) for g in ["hi ", "hii ", "hello ", "hey "]):
+        return {
+            "text": f"Hello! How can I assist you with your career or resume optimization today? Feel free to ask for job recommendations, resume feedback, or skill guidance tailored to your background in **{skills_fmt}**.",
+            "jobs": []
+        }
+
+    # Check for Resume Feedback / Resume Change Intent
+    resume_keywords = ["resume", "cv", "profile", "change", "improve", "feedback", "advice", "audit", "format", "summary", "edit"]
+    is_resume_query = any(w in query_lower for w in resume_keywords)
+
+    # Explicit Job Search Intent ONLY
+    job_keywords = ["job", "jobs", "opening", "openings", "vacancy", "vacancies", "position", "positions", "hiring", "apply", "recommend jobs", "suggest jobs", "find jobs"]
+    is_job_request = not is_resume_query and any(w in query_lower for w in job_keywords)
+
+    if is_resume_query:
+        text = (
+            f"Here are key recommendations to optimize your resume based on your extracted background (**{skills_fmt}**):\n\n"
+            f"1. **Quantify Project Achievements**: Replace general task descriptions with concrete metrics (e.g. latency reductions, percentage efficiency gains, dataset sizes).\n\n"
+            f"2. **Highlight Technical Stack**: Ensure your proficiencies in {skills_fmt} are positioned prominently in your technical summary and project bullets.\n\n"
+            f"3. **Use Strong Action Verbs**: Begin bullet points with impactful verbs like *Architected*, *Engineered*, *Deployed*, and *Optimized*."
+        )
+        return {"text": text, "jobs": []}
 
     attached_jobs = []
     if is_job_request and jobs:
@@ -407,7 +428,7 @@ def _fallback(query, jobs, total_jobs, saved_count, user_skills=None):
         )
     else:
         text = (
-            f"Hello! Here is career guidance tailored for your candidate profile (**{skills_fmt}**):\n\n"
+            f"Here is career guidance tailored for your candidate profile (**{skills_fmt}**):\n\n"
             f"1. **Resume Impact**: Highlight technical achievements with concrete metrics and project outcomes.\n\n"
             f"2. **Skill Showcase**: Ensure your proficiencies in {skills_fmt} are positioned clearly in your candidate summary.\n\n"
             f"3. **Job Search Strategy**: Browse target positions in Job Listings or set automated Job Alerts to get matching roles."

@@ -72,26 +72,39 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-DAILY_CHAT_LIMIT = 30
-_daily_chat_tracker = {}
+MAX_TOKENS_PER_WINDOW = 5000
+WINDOW_MINUTES = 60
+WINDOW_SECONDS = WINDOW_MINUTES * 60
 
-def get_remaining_daily_chat_limit(user_id: int):
-    today = str(date.today())
-    key = (user_id, today)
-    used = _daily_chat_tracker.get(key, 0)
-    return max(0, DAILY_CHAT_LIMIT - used)
+class SlidingWindowTokenLimiter:
+    def __init__(self, max_tokens: int = 5000, window_seconds: int = 3600):
+        self.max_tokens = max_tokens
+        self.window_seconds = window_seconds
+        self.history = defaultdict(list)
 
-def check_and_update_daily_chat_limit(user_id: int):
-    today = str(date.today())
-    key = (user_id, today)
-    used = _daily_chat_tracker.get(key, 0)
-    if used >= DAILY_CHAT_LIMIT:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Daily AI chat limit reached ({DAILY_CHAT_LIMIT} queries/day). Please try again tomorrow!"
-        )
-    _daily_chat_tracker[key] = used + 1
-    return DAILY_CHAT_LIMIT - (used + 1)
+    def _clean_old(self, user_id: int):
+        now = time.time()
+        cutoff = now - self.window_seconds
+        self.history[user_id] = [entry for entry in self.history[user_id] if entry[0] > cutoff]
+
+    def get_remaining_tokens(self, user_id: int) -> int:
+        self._clean_old(user_id)
+        used = sum(tokens for t, tokens in self.history[user_id])
+        return max(0, self.max_tokens - used)
+
+    def check_and_consume(self, user_id: int, tokens_to_consume: int = 450) -> int:
+        self._clean_old(user_id)
+        used = sum(tokens for t, tokens in self.history[user_id])
+        if used + tokens_to_consume > self.max_tokens:
+            remaining = max(0, self.max_tokens - used)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Token rate limit exceeded (5,000 tokens / 1 hour). You have {remaining} tokens remaining in this 1-hour window. Please wait a moment!"
+            )
+        self.history[user_id].append((time.time(), tokens_to_consume))
+        return max(0, self.max_tokens - (used + tokens_to_consume))
+
+token_limiter = SlidingWindowTokenLimiter(max_tokens=MAX_TOKENS_PER_WINDOW, window_seconds=WINDOW_SECONDS)
 
 app.add_middleware(
     CORSMiddleware,
@@ -102,7 +115,7 @@ app.add_middleware(
 )
 
 @app.post("/jobs/refresh")
-def manual_jobs_refresh(background_tasks: BackgroundTasks, user_id: str = Depends(get_current_user)):
+def manual_jobs_refresh(background_tasks: BackgroundTasks, user_id: int = Depends(get_current_user)):
     background_tasks.add_task(refresh_and_import_jobs, 50)
     return {"message": "Job refresh initiated in background. Outdated jobs will be deleted and 50 fresh ones loaded."}
 
@@ -172,7 +185,7 @@ def profile(user_id: int = Depends(get_current_user)):
     return user.data[0]
 
 @app.post("/job_sources")
-def create_source(source: SourceInput, user_id: str = Depends(get_current_user)):
+def create_source(source: SourceInput, user_id: int = Depends(get_current_user)):
     new_source = (supabase.table("job_sources").insert({"source_name": source.source_name, "source_url": source.source_url}).execute())
 
     return {
@@ -181,7 +194,7 @@ def create_source(source: SourceInput, user_id: str = Depends(get_current_user))
     }
 
 @app.post("/jobs")
-def create_job(job: JobsInput, user_id: str = Depends(get_current_user)):
+def create_job(job: JobsInput, user_id: int = Depends(get_current_user)):
     new_job = (supabase.table("jobs").insert({"title": job.title, "company": job.company, "location": job.location, "salary": job.salary, "job_type": job.job_type, "description": job.description, "job_url": job.job_url, "source_id": job.source_id}).execute())
 
     return {
@@ -201,19 +214,19 @@ def get_job(job_id: int, user_id: int = Depends(get_current_user)):
     return job.data[0]
 
 @app.get("/get_jobs")
-def get_jobs(page: int = 1, per_page: int = 10, user_id: str = Depends(get_current_user)):
+def get_jobs(page: int = 1, per_page: int = 10, user_id: int = Depends(get_current_user)):
     offset = (page - 1) * per_page
     jobs = supabase.table("jobs").select("*").range(offset, offset + per_page - 1).execute()
     return {"jobs": jobs.data, "page": page, "per_page": per_page}
 
 @app.get("/locations")
-def get_locations(user_id: str = Depends(get_current_user)):
+def get_locations(user_id: int = Depends(get_current_user)):
     res = supabase.table("jobs").select("location").execute()
     locations = sorted(list(set(item["location"].strip() for item in res.data if item.get("location"))))
     return locations
 
 @app.post("/search_jobs")
-def search_jobs(search: SearchJob, page: int = 1, per_page: int = 10, user_id: str = Depends(get_current_user)):
+def search_jobs(search: SearchJob, page: int = 1, per_page: int = 10, user_id: int = Depends(get_current_user)):
     query = supabase.table("jobs").select("*")
 
     if search.location:
@@ -258,7 +271,7 @@ def search_jobs(search: SearchJob, page: int = 1, per_page: int = 10, user_id: s
     return {"jobs": paginated_results, "page": page, "per_page": per_page, "total": len(results)}
 
 @app.post("/save_job")
-def save_job(saved_job: SavedJob, user_id: str = Depends(get_current_user)):
+def save_job(saved_job: SavedJob, user_id: int = Depends(get_current_user)):
     existing = (supabase.table("saved_jobs").select("*").eq("user_id", user_id).eq("job_id", saved_job.job_id).execute())
 
     if existing.data:
@@ -285,7 +298,7 @@ def unsave_job(job_id: int, user_id: int = Depends(get_current_user)):
     return {"message": "Job unsaved successfully"}
 
 @app.get("/job_sources")
-def get_sources(user_id: str = Depends(get_current_user)):
+def get_sources(user_id: int = Depends(get_current_user)):
     sources = (supabase.table("job_sources").select("*").execute())
     return sources.data
 
@@ -348,17 +361,20 @@ def upload_resume(file: UploadFile = File(...), user_id: int = Depends(get_curre
             # 3. Find matched jobs using semantic search
             matched = match_jobs(embedding, limit=10)
 
-            # 4. LLM Analysis: extract ALL skills, calculate match score & generate AI recommendations
-            analysis = analyze_resume_data(text, matched)
+            # 4. LLM Parallel Execution: run analysis & profile extraction concurrently for 2x speedup
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                future_analysis = executor.submit(analyze_resume_data, text, matched)
+                future_profile = executor.submit(extract_ai_profile, text)
+                analysis = future_analysis.result()
+                profile = future_profile.result()
 
-            # 5. Extract and update profile
-            profile = extract_ai_profile(text)
+            # 5. Combine and update profile
             profile["job_fit_score"] = analysis.get("match_score", 80)
             profile["recommendation"] = analysis.get("recommendation", "")
             if analysis.get("extracted_skills"):
                 profile["top_skills"] = analysis["extracted_skills"]
             save_ai_profile(user_id, profile)
-
 
             return {"message": "Resume uploaded and vector chunks stored successfully", "analysis": analysis, "profile": profile}
         except Exception as e:
@@ -401,8 +417,6 @@ def _fill_job_urls(matched_jobs_dict):
 
 @app.post("/resume/chat")
 def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_current_user)):
-    minute_limiter.check_rate_limit(str(user_id))
-    check_and_update_daily_chat_limit(user_id)
     resume = get_resume(user_id)
     ai_profile = get_ai_profile(user_id)
 
@@ -410,12 +424,30 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
         return {
             "response": "Please upload your resume using the box on the left first. Once uploaded, I can match jobs to your skills and assist with your career!",
             "matches": [],
-            "remaining_daily": get_remaining_daily_chat_limit(user_id),
-            "daily_limit": DAILY_CHAT_LIMIT
+            "remaining_tokens": token_limiter.get_remaining_tokens(user_id),
+            "max_tokens_window": MAX_TOKENS_PER_WINDOW,
+            "window_minutes": WINDOW_MINUTES
         }
 
     user_skills = (ai_profile.get("top_skills") or []) if ai_profile else extract_skills_local(resume["resume_text"])
-    skills_str = ", ".join(user_skills)
+
+    # Instant greeting short-circuit (0ms, 0 tokens consumed)
+    msg_clean = chat_input.message.strip().lower()
+    greetings = {"hi", "hii", "hello", "hey", "hi there", "hello there", "good morning", "good evening"}
+    if msg_clean in greetings or any(msg_clean.startswith(g) for g in ["hi ", "hii ", "hello ", "hey "]):
+        skills_fmt = ", ".join(user_skills[:5]) if user_skills else "your technical domain"
+        return {
+            "response": f"Hello! How can I assist you with your career or resume optimization today? Feel free to ask for job recommendations, resume feedback, or skill guidance tailored to your background in {skills_fmt}.",
+            "matches": [],
+            "remaining_tokens": token_limiter.get_remaining_tokens(user_id),
+            "max_tokens_window": MAX_TOKENS_PER_WINDOW,
+            "window_minutes": WINDOW_MINUTES
+        }
+
+    # Estimate token cost (~450 tokens per AI query execution) and check 10k/9m rate limit
+    rem_tokens = token_limiter.check_and_consume(user_id, tokens_to_consume=450)
+
+    skills_str = ", ".join(user_skills[:4])
     roles_str = ", ".join(ai_profile.get("preferred_roles") or []) if ai_profile else ""
     context = f"Candidate Skills: {skills_str}. Roles: {roles_str}. Query: {chat_input.message}"
 
@@ -442,16 +474,24 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
     return {
         "response": ai_result.get("text", "Here are the recommendations for your profile:"),
         "matches": structured,
-        "remaining_daily": get_remaining_daily_chat_limit(user_id),
-        "daily_limit": DAILY_CHAT_LIMIT
+        "remaining_tokens": rem_tokens,
+        "max_tokens_window": MAX_TOKENS_PER_WINDOW,
+        "window_minutes": WINDOW_MINUTES
     }
 
 
 @app.get("/resume/analysis")
 def get_user_resume_analysis(user_id: int = Depends(get_current_user)):
     resume = get_resume(user_id)
+    rem_tokens = token_limiter.get_remaining_tokens(user_id)
+
     if not resume:
-        return {"has_resume": False, "remaining_daily": get_remaining_daily_chat_limit(user_id), "daily_limit": DAILY_CHAT_LIMIT}
+        return {
+            "has_resume": False,
+            "remaining_tokens": rem_tokens,
+            "max_tokens_window": MAX_TOKENS_PER_WINDOW,
+            "window_minutes": WINDOW_MINUTES
+        }
 
     ai_profile = get_ai_profile(user_id)
     rec = None
@@ -486,8 +526,9 @@ def get_user_resume_analysis(user_id: int = Depends(get_current_user)):
             "recommendation": rec
         },
         "profile": ai_profile or {"top_skills": skills, "job_fit_score": score},
-        "remaining_daily": get_remaining_daily_chat_limit(user_id),
-        "daily_limit": DAILY_CHAT_LIMIT
+        "remaining_tokens": rem_tokens,
+        "max_tokens_window": MAX_TOKENS_PER_WINDOW,
+        "window_minutes": WINDOW_MINUTES
     }
 
 
