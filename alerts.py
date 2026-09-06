@@ -5,20 +5,48 @@ from email.mime.text import MIMEText
 from database import supabase
 from RAG import get_ai_profile
 
-SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").replace(" ", "")
+def _get_smtp_credentials():
+    email = os.getenv("SMTP_EMAIL", "").strip().strip('"').strip("'")
+    password = os.getenv("SMTP_PASSWORD", "").replace(" ", "").strip().strip('"').strip("'")
+    return email, password
 
 
-def _enrich_with_profile(jobs, profile):
-    if not profile:
-        return jobs
-    user_skills = {s.lower() for s in (profile.get("top_skills") or [])}
-    missing = {s.lower() for s in (profile.get("missing_skills") or [])}
-    for job in jobs:
-        text = f"{(job.get('title') or '')} {(job.get('description') or '')}".lower()
-        job["_matched"] = [s for s in user_skills if s in text]
-        job["_missing"] = [s for s in missing if s in text]
-    return jobs
+def _send_smtp_email(to_email: str, subject: str, text_body: str, html_body: str, sender_name: str = "HirePulse AI") -> bool:
+    smtp_email, smtp_password = _get_smtp_credentials()
+
+    if not smtp_email or not smtp_password:
+        print(f"[Email Warning] SMTP_EMAIL or SMTP_PASSWORD not set in environment.")
+        return False
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"{sender_name} <{smtp_email}>"
+    msg["To"] = to_email
+
+    msg.attach(MIMEText(text_body, "plain"))
+    msg.attach(MIMEText(html_body, "html"))
+
+    # Try SSL Port 465 first (most reliable on cloud host platforms like Render)
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=12) as server:
+            server.login(smtp_email, smtp_password)
+            server.sendmail(smtp_email, to_email, msg.as_string())
+        print(f"[Email Success] Sent email to {to_email} via SSL Port 465")
+        return True
+    except Exception as ssl_err:
+        print(f"[Email Notice] SSL Port 465 failed for {to_email}: {ssl_err}. Trying TLS Port 587...")
+
+    # Fallback to TLS Port 587
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=12) as server:
+            server.starttls()
+            server.login(smtp_email, smtp_password)
+            server.sendmail(smtp_email, to_email, msg.as_string())
+        print(f"[Email Success] Sent email to {to_email} via TLS Port 587")
+        return True
+    except Exception as tls_err:
+        print(f"[Email Error] Failed to send email to {to_email} via Port 587: {tls_err}")
+        return False
 
 
 def send_email(to_email, keyword, jobs, profile=None):
@@ -55,26 +83,12 @@ def send_email(to_email, keyword, jobs, profile=None):
         {jobs_html}
     </div>"""
 
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"Job Alert: {keyword.title()}"
-        msg["From"] = f"FastAPI Res <{SMTP_EMAIL}>"
-        msg["To"] = to_email
-
-        msg.attach(MIMEText(text_body, "plain"))
-        msg.attach(MIMEText(html_body, "html"))
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
-        print(f"Alert email sent successfully to {to_email}")
-    except Exception as e:
-        print(f"Email error sending to {to_email}: {e}")
+    return _send_smtp_email(to_email, f"Job Alert: {keyword.title()}", text_body, html_body, sender_name="HirePulse Alerts")
 
 
 def send_otp_email(to_email, otp_code):
-    if not SMTP_EMAIL or not SMTP_PASSWORD:
+    smtp_email, smtp_password = _get_smtp_credentials()
+    if not smtp_email or not smtp_password:
         print(f"[OTP Email] SMTP_EMAIL or SMTP_PASSWORD not set. Verification OTP for {to_email} is: {otp_code}")
         return True
 
@@ -89,28 +103,12 @@ def send_otp_email(to_email, otp_code):
         <p style="color:#737373;font-size:0.85rem;margin-bottom:0">This code will expire in 10 minutes. If you did not request this verification, please ignore this email.</p>
     </div>
     """
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"{otp_code} is your HirePulse verification code"
-        msg["From"] = f"HirePulse AI <{SMTP_EMAIL}>"
-        msg["To"] = to_email
-
-        msg.attach(MIMEText(text_body, "plain"))
-        msg.attach(MIMEText(html_body, "html"))
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
-        print(f"[OTP Email] Verification code {otp_code} sent successfully to {to_email}")
-        return True
-    except Exception as e:
-        print(f"[OTP Email] Error sending verification code to {to_email}: {e}")
-        return False
+    return _send_smtp_email(to_email, f"{otp_code} is your HirePulse verification code", text_body, html_body, sender_name="HirePulse AI")
 
 
 def send_password_reset_otp_email(to_email, otp_code):
-    if not SMTP_EMAIL or not SMTP_PASSWORD:
+    smtp_email, smtp_password = _get_smtp_credentials()
+    if not smtp_email or not smtp_password:
         print(f"[Password Reset OTP] SMTP_EMAIL or SMTP_PASSWORD not set. Reset OTP for {to_email} is: {otp_code}")
         return True
 
@@ -125,24 +123,7 @@ def send_password_reset_otp_email(to_email, otp_code):
         <p style="color:#737373;font-size:0.85rem;margin-bottom:0">This code will expire in 10 minutes. If you did not request a password reset, please ignore this email.</p>
     </div>
     """
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"{otp_code} is your HirePulse password reset code"
-        msg["From"] = f"HirePulse Security <{SMTP_EMAIL}>"
-        msg["To"] = to_email
-
-        msg.attach(MIMEText(text_body, "plain"))
-        msg.attach(MIMEText(html_body, "html"))
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
-        print(f"[Password Reset OTP] Code {otp_code} sent successfully to {to_email}")
-        return True
-    except Exception as e:
-        print(f"[Password Reset OTP] Error sending code to {to_email}: {e}")
-        return False
+    return _send_smtp_email(to_email, f"{otp_code} is your HirePulse password reset code", text_body, html_body, sender_name="HirePulse Security")
 
 
 
