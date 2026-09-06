@@ -38,25 +38,16 @@ ANALYSIS_PROMPT = ChatPromptTemplate.from_template(
 )
 
 CHAT_PROMPT = ChatPromptTemplate.from_template(
-    "You are HirePulse Pivot AI, an expert career recruiter and matchmaker.\n"
-    "Your goal is to answer the candidate's query thoughtfully and provide job suggestions ONLY when explicitly requested.\n\n"
-    "CANDIDATE RESUME CONTEXT:\n{resume}\n\n"
-    "CANDIDATE TOP SKILLS:\n{user_skills}\n\n"
-    "MATCHED JOBS CANDIDATES:\n{jobs_json}\n\n"
-    "VALID JOB IDs: {valid_ids}\n"
-    "TOTAL DB JOBS: {total_jobs} | SAVED JOBS: {saved_jobs_count}\n\n"
+    "You are HirePulse Pivot AI, an expert career recruiter.\n\n"
+    "CANDIDATE CONTEXT:\n{resume}\n"
+    "SKILLS: {user_skills}\n"
+    "MATCHED JOBS: {jobs_json}\n\n"
     "USER QUERY: {query}\n\n"
-    "STRICT FACTUAL & INTENT RULES:\n"
-    "1. ABSOLUTE TRUTH RULE: Rely ONLY on the exact skills, programming languages, tools, and experience listed in CANDIDATE TOP SKILLS and CANDIDATE RESUME CONTEXT. NEVER invent, hallucinate, assume, or list any programming language (such as C++, C#, Ruby, etc.) or skill that is NOT explicitly present in CANDIDATE TOP SKILLS or RESUME CONTEXT!\n"
-    "2. RESUME OPTIMIZATION VS JOB MATCH INTENT:\n"
-    "   - If the user query is asking for resume recommendations, resume feedback, optimizations, resume improvements, formatting, or project advice, KEEP 'jobs' COMPLETELY EMPTY ([])! Provide high-value, highly specific resume advice in 'text'.\n"
-    "   - ONLY attach/return jobs in the 'jobs' list if the user explicitly asks for job postings or job suggestions (e.g. 'suggest jobs', 'find jobs', 'show matching jobs', 'job openings for me').\n"
-    "3. When the user DOES explicitly ask for job suggestions, evaluate candidate jobs against their skills and return ONLY suitable jobs with custom match reasons.\n"
-    "4. NO MATCHING JOBS RULE: If the user asks for job suggestions but there are no suitable jobs matching their profile in the database, state clearly in 'text': 'Currently, there are no suitable job postings matching your profile in our database. Please set an email alert for your preferred roles in the **Job Alerts** section so you get notified instantly when new matching positions are added!'\n"
-    "5. BEACON STANDARD PRESENTATION & FORMATTING RULE:\n"
-    "   - Always structure your response into clean, spacious paragraphs separated by double line breaks (`\n\n`).\n"
-    "   - ALWAYS place EVERY bullet point (`- `) or numbered recommendation (`1. `, `2. `, `3. `) on its OWN SEPARATE LINE with double line breaks before each item.\n"
-    "   - ALWAYS use **bold titles** for each recommendation step (e.g., `1. **Quantify Metrics**: Add quantifiable results...`)."
+    "RULES:\n"
+    "1. ABSOLUTE TRUTH: Mention ONLY skills present in CANDIDATE CONTEXT/SKILLS.\n"
+    "2. INTENT SEPARATION: If query asks for resume advice/feedback, return 'jobs': [] and detailed text advice. ONLY attach 'jobs' if user explicitly asks for job suggestions.\n"
+    "3. NO MATCHES: If asking for jobs but no matches exist, instruct candidate to set an email alert in Job Alerts.\n"
+    "4. FORMATTING: Use clear paragraphs and separate bullet points (`1. **Title**: text`) with double line breaks (`\n\n`)."
 )
 
 
@@ -86,8 +77,13 @@ KNOWN_SKILLS = [
 
 
 def extract_skills_local(text):
+    import re
     text_lower = text.lower()
-    found = [s for s in KNOWN_SKILLS if s in text_lower]
+    found = []
+    for s in KNOWN_SKILLS:
+        pattern = r'(?<![a-zA-Z0-9_#+])' + re.escape(s) + r'(?![a-zA-Z0-9_#+])'
+        if re.search(pattern, text_lower):
+            found.append(s)
     return [s.title() if len(s) > 3 else s.upper() for s in found]
 
 
@@ -286,50 +282,92 @@ def _rank_and_filter_jobs(jobs, user_skills):
     return filtered[:5] if filtered else [j for score, j in scored[:3]]
 
 
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY")
+
+
+def _call_mistral_llm(resume_slice, user_skills, jobs_json, query):
+    import requests
+    headers = {
+        "Authorization": f"Bearer {MISTRAL_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    prompt_text = (
+        f"You are HirePulse Pivot AI, an expert career recruiter.\n\n"
+        f"CANDIDATE CONTEXT:\n{resume_slice}\n"
+        f"SKILLS: {user_skills}\n"
+        f"MATCHED JOBS: {jobs_json}\n\n"
+        f"USER QUERY: {query}\n\n"
+        f"RULES:\n"
+        f"1. ABSOLUTE TRUTH: Mention ONLY skills present in CANDIDATE CONTEXT/SKILLS.\n"
+        f"2. INTENT SEPARATION: If query asks for resume advice/feedback, return 'jobs': [] and detailed text advice. ONLY attach 'jobs' if user explicitly asks for job suggestions.\n"
+        f"3. FORMATTING: Use clear paragraphs and separate bullet points (`1. **Title**: text`) with double line breaks (`\n\n`).\n\n"
+        f"Return ONLY a valid JSON object matching format: {{\"text\": \"your advice\", \"jobs\": []}}"
+    )
+    payload = {
+        "model": "open-mistral-7b",
+        "response_format": {"type": "json_object"},
+        "messages": [{"role": "user", "content": prompt_text}],
+        "temperature": 0.2,
+        "max_tokens": 800
+    }
+    try:
+        resp = requests.post("https://api.mistral.ai/v1/chat/completions", headers=headers, json=payload, timeout=12)
+        if resp.status_code == 200:
+            data = resp.json()
+            raw_content = data["choices"][0]["message"]["content"]
+            parsed = json.loads(raw_content)
+            return {
+                "text": parsed.get("text", "Here are the recommendations for your profile:"),
+                "jobs": parsed.get("jobs", [])
+            }
+        else:
+            print(f"Mistral API returned status {resp.status_code}: {resp.text}")
+    except Exception as e:
+        print(f"Mistral API failover notice: {e}")
+    return None
+
+
 def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_skills=None):
     if user_skills is None:
         user_skills = extract_skills_local(resume)
 
     filtered_jobs = _rank_and_filter_jobs(jobs, user_skills)
-    valid_ids = [j.get("id") for j in filtered_jobs]
 
+    # Beacon token optimization: compress job items payload (~60 tokens total)
     jobs_input = [
         {
             "id": j.get("id"),
             "title": j.get("title"),
-            "company": j.get("company"),
-            "description": (j.get("description") or "")[:250]
+            "company": j.get("company")
         }
         for j in filtered_jobs
     ]
+
+    resume_slice = resume[:1200]
+    skills_str = ", ".join(user_skills[:6])
+    jobs_json = json.dumps(jobs_input)
 
     try:
         structured_llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             temperature=0.2,
-            max_tokens=1200,
+            max_tokens=800,
             max_retries=2
         ).with_structured_output(ChatResponse)
 
         result = (CHAT_PROMPT | structured_llm).invoke({
-            "resume": resume[:4000],
-            "user_skills": ", ".join(user_skills),
-            "jobs_json": json.dumps(jobs_input, indent=2),
-            "valid_ids": json.dumps(valid_ids),
-            "total_jobs": total_jobs,
-            "saved_jobs_count": saved_jobs_count,
+            "resume": resume_slice,
+            "user_skills": skills_str,
+            "jobs_json": jobs_json,
             "query": query
         })
         res_dict = result.model_dump()
         return res_dict
     except Exception as e:
-        print(f"generate_answer error: {e}")
-        err_msg = str(e).lower()
-        if any(term in err_msg for term in ["429", "resourceexhausted", "quota", "rate limit", "exceeded"]):
-            return {
-                "text": "HirePulse AI service is currently receiving high demand. Please wait 15–30 seconds before asking another question.",
-                "jobs": []
-            }
+        print(f"Gemini API rate limit or error: {e}. Instant failover to Mistral AI...")
+        mistral_res = _call_mistral_llm(resume_slice, skills_str, jobs_json, query)
+        if mistral_res:
+            return mistral_res
         traceback.print_exc()
         return _fallback(query, filtered_jobs, total_jobs, saved_count=saved_jobs_count, user_skills=user_skills)
 
