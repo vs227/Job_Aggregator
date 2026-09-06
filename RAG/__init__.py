@@ -241,8 +241,13 @@ def save_ai_profile(user_id, profile):
     }
     try:
         supabase.table("user_ai_profiles").upsert(data, on_conflict="user_id").execute()
+        print(f"Successfully saved AI profile for user {user_id}")
     except Exception as e:
-        print(f"Notice saving AI profile: {e}")
+        print(f"Notice saving AI profile with on_conflict: {e}. Trying standard upsert...")
+        try:
+            supabase.table("user_ai_profiles").upsert(data).execute()
+        except Exception as ex:
+            print(f"Critical error saving AI profile: {ex}")
 
 
 def get_ai_profile(user_id):

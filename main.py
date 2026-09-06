@@ -552,14 +552,8 @@ def get_user_resume_analysis(user_id: int = Depends(get_current_user)):
 
 @app.post("/logout")
 def logout_user_session(user_id: int = Depends(get_current_user)):
-    try:
-        supabase.table("user_resumes").delete().eq("user_id", user_id).execute()
-        supabase.table("user_resume_chunks").delete().eq("user_id", user_id).execute()
-        supabase.table("user_ai_profiles").delete().eq("user_id", user_id).execute()
-        print(f"Logged out user {user_id}: Purged resume text, vector chunks & AI profiles from database.")
-    except Exception as e:
-        print(f"Notice purging user resume embeddings on logout: {e}")
-    return {"message": "Logged out successfully and user resume data erased."}
+    # User session logout: keep saved user resume and AI profile permanently in database
+    return {"message": "Logged out successfully."}
 
 
 if __name__ == "__main__":
