@@ -5,6 +5,9 @@ from email.mime.text import MIMEText
 from database import supabase
 from RAG import get_ai_profile
 
+import json
+import urllib.request
+
 def _get_smtp_credentials():
     email = (
         os.getenv("SMTP_EMAIL") or
@@ -25,11 +28,47 @@ def _get_smtp_credentials():
     return email, password
 
 
+def _send_resend_api_email(to_email: str, subject: str, html_body: str, sender_name: str = "HirePulse AI") -> bool:
+    api_key = os.getenv("RESEND_API_KEY", "").strip()
+    if not api_key:
+        return False
+    try:
+        from_header = os.getenv("RESEND_FROM_EMAIL", "HirePulse AI <onboarding@resend.dev>")
+        payload = json.dumps({
+            "from": from_header,
+            "to": [to_email],
+            "subject": subject,
+            "html": html_body
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "HirePulse/1.0"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=12) as response:
+            if response.status in (200, 201):
+                print(f"[Resend HTTP API Success] Email sent to {to_email}")
+                return True
+    except Exception as e:
+        print(f"[Resend HTTP API Error] Failed to send email via Resend API: {e}")
+    return False
+
+
 def _send_smtp_email(to_email: str, subject: str, text_body: str, html_body: str, sender_name: str = "HirePulse AI") -> bool:
+    # 1. Try Resend HTTP API first if RESEND_API_KEY is present (bypasses Render outbound port blocks)
+    if os.getenv("RESEND_API_KEY"):
+        if _send_resend_api_email(to_email, subject, html_body, sender_name):
+            return True
+
     smtp_email, smtp_password = _get_smtp_credentials()
 
     if not smtp_email or not smtp_password:
-        print(f"[Email Error] SMTP credentials not found in environment (checked SMTP_EMAIL/SMTP_USER/SMTP_PASSWORD/SMTP_PASS). Email to {to_email} skipped.")
+        print(f"[Email Error] No email credentials found in environment. Email to {to_email} skipped.")
         return False
 
     msg = MIMEMultipart("alternative")
@@ -40,7 +79,7 @@ def _send_smtp_email(to_email: str, subject: str, text_body: str, html_body: str
     msg.attach(MIMEText(text_body, "plain"))
     msg.attach(MIMEText(html_body, "html"))
 
-    # Try SSL Port 465 first (most reliable on cloud host platforms like Render)
+    # Try SSL Port 465 first
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=12) as server:
             server.login(smtp_email, smtp_password)
@@ -65,17 +104,28 @@ def _send_smtp_email(to_email: str, subject: str, text_body: str, html_body: str
 
 def test_smtp_diagnostic(to_email: str) -> dict:
     smtp_email, smtp_password = _get_smtp_credentials()
+    resend_key = os.getenv("RESEND_API_KEY", "").strip()
+
     results = {
         "to_email": to_email,
+        "resend_api_key_set": bool(resend_key),
         "smtp_email_found": smtp_email,
         "smtp_password_length": len(smtp_password) if smtp_password else 0,
+        "resend_api": None,
         "ssl_465": None,
         "tls_587": None,
         "success": False
     }
 
+    if resend_key:
+        resend_ok = _send_resend_api_email(to_email, "HirePulse Diagnostic Test", "<p>Test email via Resend API from Render</p>")
+        results["resend_api"] = "SUCCESS" if resend_ok else "FAILED"
+        if resend_ok:
+            results["success"] = True
+            return results
+
     if not smtp_email or not smtp_password:
-        results["error"] = "SMTP_EMAIL or SMTP_PASSWORD missing in environment variables"
+        results["error"] = "No SMTP credentials set in environment"
         return results
 
     msg = MIMEMultipart("alternative")
@@ -105,6 +155,7 @@ def test_smtp_diagnostic(to_email: str) -> dict:
         results["tls_587"] = f"FAILED: {type(e).__name__}: {str(e)}"
 
     return results
+
 
 
 
