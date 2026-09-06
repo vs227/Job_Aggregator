@@ -180,25 +180,42 @@ class ChatResponse(BaseModel):
     jobs: List[JobMatchReason] = Field(description="List of strictly suitable matched jobs with custom reasons. Return [] if user did NOT explicitly ask for job recommendations.")
 
 
+GEMINI_MODELS = [
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-2.5-flash",
+    "gemini-flash-latest",
+]
+
+
+def _call_gemini_structured(prompt_template, input_dict, pydantic_schema, temperature=0.2, max_tokens=800):
+    for model_name in GEMINI_MODELS:
+        try:
+            llm = ChatGoogleGenerativeAI(
+                model=model_name,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                max_retries=1
+            ).with_structured_output(pydantic_schema)
+            result = (prompt_template | llm).invoke(input_dict)
+            return result.model_dump()
+        except Exception as e:
+            print(f"Gemini model '{model_name}' failed or rate-limited: {e}. Trying next model...")
+    return None
+
+
 def extract_ai_profile(resume_text):
-    try:
-        structured_llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            temperature=0.1,
-            max_retries=1
-        ).with_structured_output(AIProfile)
-        result = (PROFILE_PROMPT | structured_llm).invoke({"resume_text": resume_text})
-        return result.model_dump()
-    except Exception as e:
-        print(f"Profile extraction fallback: {e}")
-        skills = extract_skills_local(resume_text)
-        return {
-            "top_skills": skills,
-            "experience_level": "fresher",
-            "preferred_roles": [],
-            "education": "",
-            "projects_summary": "",
-        }
+    res_dict = _call_gemini_structured(PROFILE_PROMPT, {"resume_text": resume_text}, AIProfile, temperature=0.1)
+    if res_dict:
+        return res_dict
+    skills = extract_skills_local(resume_text)
+    return {
+        "top_skills": skills,
+        "experience_level": "fresher",
+        "preferred_roles": [],
+        "education": "",
+        "projects_summary": "",
+    }
 
 
 def save_ai_profile(user_id, profile):
@@ -219,7 +236,6 @@ def save_ai_profile(user_id, profile):
         print(f"Notice saving AI profile: {e}")
 
 
-
 def get_ai_profile(user_id):
     res = supabase.table("user_ai_profiles").select("*").eq("user_id", user_id).execute()
     return res.data[0] if res.data else None
@@ -234,29 +250,22 @@ def analyze_resume_data(resume_text, matched_jobs):
         }
         for j in matched_jobs[:5]
     ]
-    try:
-        structured_llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            temperature=0.2,
-            max_retries=2
-        ).with_structured_output(ResumeAnalysis)
-        result = (ANALYSIS_PROMPT | structured_llm).invoke({
-            "resume_text": resume_text,
-            "jobs_json": json.dumps(jobs_summary, indent=2)
-        })
-        res_dict = result.model_dump()
+    res_dict = _call_gemini_structured(ANALYSIS_PROMPT, {
+        "resume_text": resume_text,
+        "jobs_json": json.dumps(jobs_summary, indent=2)
+    }, ResumeAnalysis, temperature=0.2)
+
+    if res_dict:
         if not res_dict.get("extracted_skills"):
             res_dict["extracted_skills"] = extract_skills_local(resume_text)
         return res_dict
-    except Exception as e:
-        print(f"Resume analysis LLM error: {e}")
-        traceback.print_exc()
-        skills = extract_skills_local(resume_text)
-        return {
-            "match_score": 75 if skills else 50,
-            "extracted_skills": skills,
-            "recommendation": "Highlight core project metrics, clarify system design experience, and align key skills with current market postings.",
-        }
+
+    skills = extract_skills_local(resume_text)
+    return {
+        "match_score": 75 if skills else 50,
+        "extracted_skills": skills,
+        "recommendation": "Highlight core project metrics, clarify system design experience, and align key skills with current market postings.",
+    }
 
 
 def _rank_and_filter_jobs(jobs, user_skills):
@@ -282,13 +291,15 @@ def _rank_and_filter_jobs(jobs, user_skills):
     return filtered[:5] if filtered else [j for score, j in scored[:3]]
 
 
-MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY")
-
-
 def _call_mistral_llm(resume_slice, user_skills, jobs_json, query):
     import requests
+    mistral_key = os.environ.get("MISTRAL_API_KEY")
+    if not mistral_key:
+        print("No MISTRAL_API_KEY found in environment.")
+        return None
+
     headers = {
-        "Authorization": f"Bearer {MISTRAL_API_KEY}",
+        "Authorization": f"Bearer {mistral_key}",
         "Content-Type": "application/json"
     }
     prompt_text = (
@@ -303,27 +314,37 @@ def _call_mistral_llm(resume_slice, user_skills, jobs_json, query):
         f"3. FORMATTING: Use clear paragraphs and separate bullet points (`1. **Title**: text`) with double line breaks (`\n\n`).\n\n"
         f"Return ONLY a valid JSON object matching format: {{\"text\": \"your advice\", \"jobs\": []}}"
     )
-    payload = {
-        "model": "open-mistral-7b",
-        "response_format": {"type": "json_object"},
-        "messages": [{"role": "user", "content": prompt_text}],
-        "temperature": 0.2,
-        "max_tokens": 800
-    }
-    try:
-        resp = requests.post("https://api.mistral.ai/v1/chat/completions", headers=headers, json=payload, timeout=12)
-        if resp.status_code == 200:
-            data = resp.json()
-            raw_content = data["choices"][0]["message"]["content"]
-            parsed = json.loads(raw_content)
-            return {
-                "text": parsed.get("text", "Here are the recommendations for your profile:"),
-                "jobs": parsed.get("jobs", [])
-            }
-        else:
-            print(f"Mistral API returned status {resp.status_code}: {resp.text}")
-    except Exception as e:
-        print(f"Mistral API failover notice: {e}")
+    mistral_models = ["mistral-small-latest", "open-mistral-7b", "mistral-medium-latest"]
+    for model in mistral_models:
+        payload = {
+            "model": model,
+            "response_format": {"type": "json_object"},
+            "messages": [{"role": "user", "content": prompt_text}],
+            "temperature": 0.2,
+            "max_tokens": 800
+        }
+        try:
+            print(f"Trying Mistral AI model: {model}...")
+            resp = requests.post("https://api.mistral.ai/v1/chat/completions", headers=headers, json=payload, timeout=25)
+            if resp.status_code == 200:
+                data = resp.json()
+                raw_content = data["choices"][0]["message"]["content"]
+                cleaned = raw_content.strip()
+                if cleaned.startswith("```json"):
+                    cleaned = cleaned[7:]
+                if cleaned.startswith("```"):
+                    cleaned = cleaned[3:]
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3]
+                parsed = json.loads(cleaned.strip())
+                return {
+                    "text": parsed.get("text", "Here are recommendations based on your candidate profile:"),
+                    "jobs": parsed.get("jobs", [])
+                }
+            else:
+                print(f"Mistral API model {model} returned status {resp.status_code}: {resp.text}")
+        except Exception as e:
+            print(f"Mistral API model {model} failover error: {e}")
     return None
 
 
@@ -333,7 +354,6 @@ def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_
 
     filtered_jobs = _rank_and_filter_jobs(jobs, user_skills)
 
-    # Beacon token optimization: compress job items payload (~60 tokens total)
     jobs_input = [
         {
             "id": j.get("id"),
@@ -347,33 +367,54 @@ def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_
     skills_str = ", ".join(user_skills[:6])
     jobs_json = json.dumps(jobs_input)
 
-    try:
-        structured_llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            temperature=0.2,
-            max_tokens=800,
-            max_retries=2
-        ).with_structured_output(ChatResponse)
+    res_dict = _call_gemini_structured(CHAT_PROMPT, {
+        "resume": resume_slice,
+        "user_skills": skills_str,
+        "jobs_json": jobs_json,
+        "query": query
+    }, ChatResponse, temperature=0.2)
 
-        result = (CHAT_PROMPT | structured_llm).invoke({
-            "resume": resume_slice,
-            "user_skills": skills_str,
-            "jobs_json": jobs_json,
-            "query": query
-        })
-        res_dict = result.model_dump()
+    if res_dict:
         return res_dict
-    except Exception as e:
-        print(f"Gemini API rate limit or error: {e}. Instant failover to Mistral AI...")
-        mistral_res = _call_mistral_llm(resume_slice, skills_str, jobs_json, query)
-        if mistral_res:
-            return mistral_res
-        traceback.print_exc()
-        return _fallback(query, filtered_jobs, total_jobs, saved_count=saved_jobs_count, user_skills=user_skills)
+
+    print("Gemini API rate limit or error across all models. Instant failover to Mistral AI...")
+    mistral_res = _call_mistral_llm(resume_slice, skills_str, jobs_json, query)
+    if mistral_res:
+        return mistral_res
+
+    print("Mistral AI failover complete/exhausted. Using intelligent local fallback...")
+    return _fallback(query, filtered_jobs, total_jobs, saved_count=saved_jobs_count, user_skills=user_skills)
 
 
 def _fallback(query, jobs, total_jobs, saved_count, user_skills=None):
+    skills_fmt = ", ".join(user_skills[:5]) if user_skills else "your technical domain"
+    query_lower = query.lower()
+
+    is_job_request = any(w in query_lower for w in ["job", "recommend", "opening", "opportunity", "role", "vacanc", "find", "suggest", "position", "apply", "hii", "hi", "hello"])
+
+    attached_jobs = []
+    if is_job_request and jobs:
+        for j in jobs[:3]:
+            attached_jobs.append({
+                "id": j.get("id"),
+                "match_reason": f"Matches key skill requirements in {skills_fmt}."
+            })
+        text = (
+            f"Based on your candidate profile and extracted skills (**{skills_fmt}**), "
+            f"here are top matching opportunities curated from our live market listings:\n\n"
+            f"1. **Target Role Alignment**: These roles closely match your core technical background in {skills_fmt}.\n\n"
+            f"2. **Optimization Suggestion**: Tailor your resume summary for these target roles to increase recruiter engagement."
+        )
+    else:
+        text = (
+            f"Hello! Here is career guidance tailored for your candidate profile (**{skills_fmt}**):\n\n"
+            f"1. **Resume Impact**: Highlight technical achievements with concrete metrics and project outcomes.\n\n"
+            f"2. **Skill Showcase**: Ensure your proficiencies in {skills_fmt} are positioned clearly in your candidate summary.\n\n"
+            f"3. **Job Search Strategy**: Browse target positions in Job Listings or set automated Job Alerts to get matching roles."
+        )
+
     return {
-        "text": "HirePulse Pivot AI encountered a temporary connection issue. Please try resending your question!",
-        "jobs": []
+        "text": text,
+        "jobs": attached_jobs
     }
+
