@@ -182,7 +182,7 @@ class ChatResponse(BaseModel):
 def extract_ai_profile(resume_text):
     try:
         structured_llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             temperature=0.1,
             max_retries=1
         ).with_structured_output(AIProfile)
@@ -235,7 +235,7 @@ def analyze_resume_data(resume_text, matched_jobs):
     ]
     try:
         structured_llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             temperature=0.2,
             max_retries=2
         ).with_structured_output(ResumeAnalysis)
@@ -300,9 +300,9 @@ def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_
 
     try:
         structured_llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             temperature=0.2,
-            max_tokens=400,
+            max_tokens=1200,
             max_retries=2
         ).with_structured_output(ChatResponse)
 
@@ -330,21 +330,14 @@ def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_
 
 
 def _fallback(query, jobs, total_jobs, saved_count, user_skills=None):
-    q = query.lower()
-    if any(w in q for w in ["hi", "hello", "hey", "hii", "yo"]):
+    words = set(query.lower().strip().split())
+    greetings = {"hi", "hello", "hey", "hii", "yo"}
+    if any(g in words for g in greetings) and len(words) <= 2:
         return {"text": "Hello! I'm HirePulse Pivot AI. How can I help with your job search?", "jobs": []}
-    if any(w in q for w in ["resume", "cv", "profile"]):
-        return {"text": "I've reviewed your resume — great experience! Ask me for job recommendations or optimization advice.", "jobs": []}
-    if any(w in q for w in ["saved jobs", "bookmarked"]):
-        return {"text": f"You have {saved_count} saved jobs!", "jobs": []}
-    if any(w in q for w in ["how many", "total jobs"]):
-        return {"text": f"We have {total_jobs} jobs listed. What role are you looking for?", "jobs": []}
-    if any(w in q for w in ["suggest", "find", "show", "match", "recommend", "jobs", "apply"]):
-        if not jobs:
-            return {
-                "text": "Currently, there are no suitable job postings matching your profile in our database. Please set an email alert for your preferred roles in the **Job Alerts** section so you get notified instantly when new matching positions are added!",
-                "jobs": []
-            }
-        skills_text = f" ({', '.join(user_skills[:3])})" if user_skills else ""
-        return {"text": f"Here are the top jobs directly matching your skills{skills_text}:", "jobs": [{"id": j.get("id"), "match_reason": f"Matches your skills in {j.get('title', 'software')}"} for j in jobs], "fallback": True}
-    return {"text": "Ask me for job suggestions or resume feedback!", "jobs": []}
+    if not jobs:
+        return {
+            "text": "Currently, there are no suitable job postings matching your profile in our database. Please set an email alert for your preferred roles in the **Job Alerts** section so you get notified instantly when new matching positions are added!",
+            "jobs": []
+        }
+    skills_text = f" ({', '.join(user_skills[:3])})" if user_skills else ""
+    return {"text": f"Here are the top jobs directly matching your skills{skills_text}:", "jobs": [{"id": j.get("id"), "match_reason": f"Matches your skills in {j.get('title', 'software')}"} for j in jobs], "fallback": True}
