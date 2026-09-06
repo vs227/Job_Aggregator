@@ -348,20 +348,35 @@ def upload_resume(file: UploadFile = File(...), user_id: int = Depends(get_curre
     try:
         text = extract_text(temp_path)
 
+        # 1. ALWAYS save raw resume text to user_resumes table first
+        embedding = None
         try:
-            # 1. Embed and save full resume
             embedding = get_embedding(text)
-            save_resume(user_id, text, embedding)
+        except Exception as e:
+            print(f"Notice embedding generation error: {e}")
 
-            # 2. Chunk document (800 chars / 100 overlap) and save vector chunks to pgvector
+        try:
+            save_resume(user_id, text, embedding)
+        except Exception as e:
+            print(f"Notice save_resume error: {e}")
+
+        try:
+            # 2. Chunk document and save vector chunks to pgvector
             chunks = chunk_resume_text(text, chunk_size=800, chunk_overlap=100)
             chunk_embeddings = get_embeddings_batch(chunks)
             save_resume_chunks(user_id, chunks, chunk_embeddings)
+        except Exception as e:
+            print(f"Notice save_resume_chunks error: {e}")
 
-            # 3. Find matched jobs using semantic search
-            matched = match_jobs(embedding, limit=10)
+        matched = []
+        if embedding:
+            try:
+                matched = match_jobs(embedding, limit=10)
+            except Exception as e:
+                print(f"Notice match_jobs error: {e}")
 
-            # 4. LLM Parallel Execution: run analysis & profile extraction concurrently for 2x speedup
+        try:
+            # 3. LLM Parallel Execution: run analysis & profile extraction concurrently
             from concurrent.futures import ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=2) as executor:
                 future_analysis = executor.submit(analyze_resume_data, text, matched)
@@ -369,7 +384,6 @@ def upload_resume(file: UploadFile = File(...), user_id: int = Depends(get_curre
                 analysis = future_analysis.result()
                 profile = future_profile.result()
 
-            # 5. Combine and update profile
             profile["job_fit_score"] = analysis.get("match_score", 80)
             profile["recommendation"] = analysis.get("recommendation", "")
             if analysis.get("extracted_skills"):
@@ -378,14 +392,15 @@ def upload_resume(file: UploadFile = File(...), user_id: int = Depends(get_curre
 
             return {"message": "Resume uploaded and vector chunks stored successfully", "analysis": analysis, "profile": profile}
         except Exception as e:
-            print(f"Error processing upload_resume: {e}")
+            print(f"Error processing AI profile analysis: {e}")
             skills = extract_skills_local(text)
             analysis = {
                 "match_score": 75,
                 "extracted_skills": skills,
-                "recommendation": "Your resume has been parsed. Consider highlighting core project metrics and key framework competencies.",
+                "recommendation": "Your resume has been parsed. You can now chat with HirePulse Pivot AI for personalized recommendations.",
             }
             profile = {"top_skills": skills, "experience_level": "fresher", "preferred_roles": [], "education": "", "projects_summary": ""}
+            save_ai_profile(user_id, profile)
             return {"message": "Resume parsed successfully", "analysis": analysis, "profile": profile}
     finally:
         if os.path.exists(temp_path):
@@ -420,7 +435,10 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
     resume = get_resume(user_id)
     ai_profile = get_ai_profile(user_id)
 
-    if not resume:
+    resume_text = resume["resume_text"] if resume else ""
+    user_skills = (ai_profile.get("top_skills") or []) if ai_profile else (extract_skills_local(resume_text) if resume_text else [])
+
+    if not resume_text and not user_skills:
         return {
             "response": "Please upload your resume using the box on the left first. Once uploaded, I can match jobs to your skills and assist with your career!",
             "matches": [],
@@ -428,8 +446,6 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
             "max_tokens_window": MAX_TOKENS_PER_WINDOW,
             "window_minutes": WINDOW_MINUTES
         }
-
-    user_skills = (ai_profile.get("top_skills") or []) if ai_profile else extract_skills_local(resume["resume_text"])
 
     # Instant greeting short-circuit (0ms, 0 tokens consumed)
     msg_clean = chat_input.message.strip().lower()
@@ -459,7 +475,7 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
         print(f"Notice matching jobs error: {e}")
 
     ai_result = generate_answer(
-        resume=resume["resume_text"], jobs=matched_jobs, query=chat_input.message,
+        resume=resume_text, jobs=matched_jobs, query=chat_input.message,
         total_jobs=100, saved_jobs_count=0, user_skills=user_skills,
     )
 
