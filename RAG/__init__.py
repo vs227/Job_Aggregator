@@ -2,6 +2,7 @@ import os
 import json
 import traceback
 from database import supabase
+from cache import cache_get, cache_set, cache_delete, hash_text
 from pydantic import BaseModel, Field
 from typing import List
 from pypdf import PdfReader
@@ -99,10 +100,18 @@ def chunk_resume_text(text, chunk_size=800, chunk_overlap=100):
 
 def get_embedding(text, task="RETRIEVAL_DOCUMENT"):
     cleaned = " ".join(text.split())
+    # Check Redis cache for embedding (deterministic for same model + text)
+    cache_key = f"emb:{hash_text(cleaned)}:{task}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
     if task == "RETRIEVAL_QUERY":
-        return embeddings.embed_query(cleaned)
+        result = embeddings.embed_query(cleaned)
     else:
-        return embeddings.embed_documents([cleaned])[0]
+        result = embeddings.embed_documents([cleaned])[0]
+    # Cache for 14 days (embeddings are deterministic)
+    cache_set(cache_key, result, ttl_seconds=14 * 86400)
+    return result
 
 
 def get_embeddings_batch(texts):
@@ -154,8 +163,19 @@ def save_resume_chunks(user_id, chunks, embeddings_list):
 
 
 def get_resume(user_id):
+    # Check Redis cache first
+    cache_key = f"user:{user_id}:resume"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
     res = supabase.table("user_resumes").select("*").eq("user_id", user_id).execute()
-    return res.data[0] if res.data else None
+    result = res.data[0] if res.data else None
+    if result:
+        # Cache for 24 hours (invalidated on resume upload)
+        # Don't cache the embedding vector — it's large and not needed for display
+        cache_data = {k: v for k, v in result.items() if k != "embedding"}
+        cache_set(cache_key, cache_data, ttl_seconds=24 * 3600)
+    return result
 
 
 def match_jobs(query_embedding, threshold=0.20, limit=8):
@@ -251,8 +271,17 @@ def save_ai_profile(user_id, profile):
 
 
 def get_ai_profile(user_id):
+    # Check Redis cache first
+    cache_key = f"user:{user_id}:ai_profile"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
     res = supabase.table("user_ai_profiles").select("*").eq("user_id", user_id).execute()
-    return res.data[0] if res.data else None
+    result = res.data[0] if res.data else None
+    if result:
+        # Cache for 24 hours (invalidated on resume upload)
+        cache_set(cache_key, result, ttl_seconds=24 * 3600)
+    return result
 
 
 def analyze_resume_data(resume_text, matched_jobs):

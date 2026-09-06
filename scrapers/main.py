@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import requests
 from database import supabase
 from RAG import get_embedding
+from cache import invalidate_jobs_cache
 
 load_dotenv()
 
@@ -75,6 +76,8 @@ def refresh_and_import_jobs(target_jobs=50):
 
     # Delete existing outdated jobs first
     clear_old_jobs()
+    # Invalidate all job-related caches after clearing old data
+    invalidate_jobs_cache()
 
     source_id = get_or_create_source()
     inserted, skipped = 0, 0
@@ -128,6 +131,8 @@ def refresh_and_import_jobs(target_jobs=50):
         time.sleep(1)
 
     print(f"\nDone! {inserted} fresh jobs imported, replacing outdated jobs.")
+    # Invalidate job caches again after new data is inserted
+    invalidate_jobs_cache()
 
     if new_jobs:
         try:

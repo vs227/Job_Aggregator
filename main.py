@@ -2,6 +2,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from database import supabase
+from cache import (
+    cache_get, cache_set, cache_delete, cache_delete_pattern,
+    invalidate_user_cache, invalidate_jobs_cache,
+    rate_limit_check, token_bucket_consume, token_bucket_remaining, hash_text,
+)
 from auth import create_token, get_current_user, verify_password, hash_password
 from models import RegisterUser, LoginUser, JobsInput, SavedJob, AlertPreference, SearchJob, SourceInput, ResumeChatInput
 import shutil
@@ -24,7 +29,10 @@ import time
 from collections import defaultdict
 from datetime import date
 
+# ─── Rate Limiting (Redis-backed with in-memory fallback) ─────────────
+
 class SlidingWindowRateLimiter:
+    """In-memory fallback rate limiter (used only when Redis is unavailable)."""
     def __init__(self, requests_per_minute: int = 10):
         self.rpm = requests_per_minute
         self.requests = defaultdict(list)
@@ -42,6 +50,67 @@ class SlidingWindowRateLimiter:
         self.requests[identifier] = timestamps
 
 minute_limiter = SlidingWindowRateLimiter(requests_per_minute=10)
+
+MAX_TOKENS_PER_WINDOW = 5000
+WINDOW_MINUTES = 60
+WINDOW_SECONDS = WINDOW_MINUTES * 60
+
+class SlidingWindowTokenLimiter:
+    """In-memory fallback token limiter (used only when Redis is unavailable)."""
+    def __init__(self, max_tokens: int = 5000, window_seconds: int = 3600):
+        self.max_tokens = max_tokens
+        self.window_seconds = window_seconds
+        self.history = defaultdict(list)
+
+    def _clean_old(self, user_id: int):
+        now = time.time()
+        cutoff = now - self.window_seconds
+        self.history[user_id] = [entry for entry in self.history[user_id] if entry[0] > cutoff]
+
+    def get_remaining_tokens(self, user_id: int) -> int:
+        self._clean_old(user_id)
+        used = sum(tokens for t, tokens in self.history[user_id])
+        return max(0, self.max_tokens - used)
+
+    def check_and_consume(self, user_id: int, tokens_to_consume: int = 450) -> int:
+        self._clean_old(user_id)
+        used = sum(tokens for t, tokens in self.history[user_id])
+        if used + tokens_to_consume > self.max_tokens:
+            remaining = max(0, self.max_tokens - used)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Token rate limit exceeded (5,000 tokens / 1 hour). You have {remaining} tokens remaining in this 1-hour window. Please wait a moment!"
+            )
+        self.history[user_id].append((time.time(), tokens_to_consume))
+        return max(0, self.max_tokens - (used + tokens_to_consume))
+
+_fallback_token_limiter = SlidingWindowTokenLimiter(max_tokens=MAX_TOKENS_PER_WINDOW, window_seconds=WINDOW_SECONDS)
+
+
+def _get_remaining_tokens(user_id: int) -> int:
+    """Get remaining tokens — Redis first, in-memory fallback."""
+    remaining = token_bucket_remaining(f"user:{user_id}", MAX_TOKENS_PER_WINDOW, WINDOW_SECONDS)
+    if remaining == MAX_TOKENS_PER_WINDOW:
+        # Redis might be down, check in-memory too
+        mem_remaining = _fallback_token_limiter.get_remaining_tokens(user_id)
+        return min(remaining, mem_remaining)
+    return remaining
+
+
+def _consume_tokens(user_id: int, tokens: int = 450) -> int:
+    """Consume tokens — Redis first, in-memory fallback."""
+    allowed, remaining = token_bucket_consume(f"user:{user_id}", tokens, MAX_TOKENS_PER_WINDOW, WINDOW_SECONDS)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Token rate limit exceeded (5,000 tokens / 1 hour). You have {remaining} tokens remaining in this 1-hour window. Please wait a moment!"
+        )
+    # Also track in-memory as backup
+    try:
+        _fallback_token_limiter.check_and_consume(user_id, tokens)
+    except HTTPException:
+        pass  # Redis is the source of truth
+    return remaining
 
 scheduler = BackgroundScheduler()
 
@@ -71,40 +140,6 @@ async def lifespan(app: FastAPI):
         print(f"[APScheduler] Warning shutting down scheduler: {e}")
 
 app = FastAPI(lifespan=lifespan)
-
-MAX_TOKENS_PER_WINDOW = 5000
-WINDOW_MINUTES = 60
-WINDOW_SECONDS = WINDOW_MINUTES * 60
-
-class SlidingWindowTokenLimiter:
-    def __init__(self, max_tokens: int = 5000, window_seconds: int = 3600):
-        self.max_tokens = max_tokens
-        self.window_seconds = window_seconds
-        self.history = defaultdict(list)
-
-    def _clean_old(self, user_id: int):
-        now = time.time()
-        cutoff = now - self.window_seconds
-        self.history[user_id] = [entry for entry in self.history[user_id] if entry[0] > cutoff]
-
-    def get_remaining_tokens(self, user_id: int) -> int:
-        self._clean_old(user_id)
-        used = sum(tokens for t, tokens in self.history[user_id])
-        return max(0, self.max_tokens - used)
-
-    def check_and_consume(self, user_id: int, tokens_to_consume: int = 450) -> int:
-        self._clean_old(user_id)
-        used = sum(tokens for t, tokens in self.history[user_id])
-        if used + tokens_to_consume > self.max_tokens:
-            remaining = max(0, self.max_tokens - used)
-            raise HTTPException(
-                status_code=429,
-                detail=f"Token rate limit exceeded (5,000 tokens / 1 hour). You have {remaining} tokens remaining in this 1-hour window. Please wait a moment!"
-            )
-        self.history[user_id].append((time.time(), tokens_to_consume))
-        return max(0, self.max_tokens - (used + tokens_to_consume))
-
-token_limiter = SlidingWindowTokenLimiter(max_tokens=MAX_TOKENS_PER_WINDOW, window_seconds=WINDOW_SECONDS)
 
 app.add_middleware(
     CORSMiddleware,
@@ -175,6 +210,12 @@ def login(user: LoginUser):
 
 @app.get("/profile")
 def profile(user_id: int = Depends(get_current_user)):
+    # Check Redis cache first (30-minute TTL)
+    cache_key = f"user:{user_id}:profile"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
     user = (supabase.table("users").select("id, username, email, created_at").eq("id", user_id).execute())
 
     if not user.data:
@@ -182,7 +223,9 @@ def profile(user_id: int = Depends(get_current_user)):
             status_code=404,
             detail="User not found"
         )
-    return user.data[0]
+    result = user.data[0]
+    cache_set(cache_key, result, ttl_seconds=30 * 60)
+    return result
 
 @app.post("/job_sources")
 def create_source(source: SourceInput, user_id: int = Depends(get_current_user)):
@@ -204,6 +247,12 @@ def create_job(job: JobsInput, user_id: int = Depends(get_current_user)):
 
 @app.get("/jobs/{job_id}")
 def get_job(job_id: int, user_id: int = Depends(get_current_user)):
+    # Check Redis cache first (24-hour TTL — jobs are immutable once scraped)
+    cache_key = f"job:{job_id}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
     job = (supabase.table("jobs").select("*").eq("id", job_id).execute())
 
     if not job.data:
@@ -211,18 +260,35 @@ def get_job(job_id: int, user_id: int = Depends(get_current_user)):
             status_code=404,
             detail="Job not found"
         )
-    return job.data[0]
+    result = job.data[0]
+    cache_set(cache_key, result, ttl_seconds=24 * 3600)
+    return result
 
 @app.get("/get_jobs")
 def get_jobs(page: int = 1, per_page: int = 10, user_id: int = Depends(get_current_user)):
+    # Check Redis cache first (3-hour TTL — invalidated on scraper refresh)
+    cache_key = f"jobs:feed:page:{page}:limit:{per_page}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
     offset = (page - 1) * per_page
     jobs = supabase.table("jobs").select("*").range(offset, offset + per_page - 1).execute()
-    return {"jobs": jobs.data, "page": page, "per_page": per_page}
+    result = {"jobs": jobs.data, "page": page, "per_page": per_page}
+    cache_set(cache_key, result, ttl_seconds=3 * 3600)
+    return result
 
 @app.get("/locations")
 def get_locations(user_id: int = Depends(get_current_user)):
+    # Check Redis cache first (12-hour TTL — invalidated on scraper refresh)
+    cache_key = "jobs:locations"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
     res = supabase.table("jobs").select("location").execute()
     locations = sorted(list(set(item["location"].strip() for item in res.data if item.get("location"))))
+    cache_set(cache_key, locations, ttl_seconds=12 * 3600)
     return locations
 
 @app.post("/search_jobs")
@@ -281,6 +347,8 @@ def save_job(saved_job: SavedJob, user_id: int = Depends(get_current_user)):
         )
 
     saved = (supabase.table("saved_jobs").insert({"user_id": user_id,"job_id": saved_job.job_id}).execute())
+    # Invalidate saved_jobs cache for this user
+    cache_delete(f"user:{user_id}:saved_jobs")
 
     return {
         "message": "Job saved successfully",
@@ -289,12 +357,22 @@ def save_job(saved_job: SavedJob, user_id: int = Depends(get_current_user)):
 
 @app.get("/saved_jobs")
 def get_saved_jobs(user_id: int = Depends(get_current_user)):
+    # Check Redis cache first (1-hour TTL — invalidated on save/unsave)
+    cache_key = f"user:{user_id}:saved_jobs"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     saved = (supabase.table("saved_jobs").select("*, jobs(*)").eq("user_id", user_id).execute())
-    return saved.data
+    result = saved.data
+    cache_set(cache_key, result, ttl_seconds=3600)
+    return result
 
 @app.delete("/saved_jobs/{job_id}")
 def unsave_job(job_id: int, user_id: int = Depends(get_current_user)):
     deleted = (supabase.table("saved_jobs").delete().eq("user_id", user_id).eq("job_id", job_id).execute())
+    # Invalidate saved_jobs cache for this user
+    cache_delete(f"user:{user_id}:saved_jobs")
     return {"message": "Job unsaved successfully"}
 
 @app.get("/job_sources")
@@ -368,6 +446,9 @@ def upload_resume(file: UploadFile = File(...), user_id: int = Depends(get_curre
         except Exception as e:
             print(f"Notice save_resume_chunks error: {e}")
 
+        # 3. Invalidate all user caches after resume upload
+        invalidate_user_cache(user_id)
+
         matched = []
         if embedding:
             try:
@@ -376,7 +457,7 @@ def upload_resume(file: UploadFile = File(...), user_id: int = Depends(get_curre
                 print(f"Notice match_jobs error: {e}")
 
         try:
-            # 3. LLM Parallel Execution: run analysis & profile extraction concurrently
+            # 4. LLM Parallel Execution: run analysis & profile extraction concurrently
             from concurrent.futures import ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=2) as executor:
                 future_analysis = executor.submit(analyze_resume_data, text, matched)
@@ -442,7 +523,7 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
         return {
             "response": "Please upload your resume using the box on the left first. Once uploaded, I can match jobs to your skills and assist with your career!",
             "matches": [],
-            "remaining_tokens": token_limiter.get_remaining_tokens(user_id),
+            "remaining_tokens": _get_remaining_tokens(user_id),
             "max_tokens_window": MAX_TOKENS_PER_WINDOW,
             "window_minutes": WINDOW_MINUTES
         }
@@ -455,13 +536,13 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
         return {
             "response": f"Hello! How can I assist you with your career or resume optimization today? Feel free to ask for job recommendations, resume feedback, or skill guidance tailored to your background in {skills_fmt}.",
             "matches": [],
-            "remaining_tokens": token_limiter.get_remaining_tokens(user_id),
+            "remaining_tokens": _get_remaining_tokens(user_id),
             "max_tokens_window": MAX_TOKENS_PER_WINDOW,
             "window_minutes": WINDOW_MINUTES
         }
 
-    # Estimate token cost (~450 tokens per AI query execution) and check 10k/9m rate limit
-    rem_tokens = token_limiter.check_and_consume(user_id, tokens_to_consume=450)
+    # Estimate token cost (~450 tokens per AI query execution) and check rate limit
+    rem_tokens = _consume_tokens(user_id, tokens=450)
 
     skills_str = ", ".join(user_skills[:4])
     roles_str = ", ".join(ai_profile.get("preferred_roles") or []) if ai_profile else ""
@@ -498,9 +579,16 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
 
 @app.get("/resume/analysis")
 def get_user_resume_analysis(user_id: int = Depends(get_current_user)):
+    # Check Redis cache first (24-hour TTL — invalidated on resume upload)
+    analysis_cache_key = f"user:{user_id}:resume_analysis"
+    cached_analysis = cache_get(analysis_cache_key)
+    if cached_analysis:
+        cached_analysis["remaining_tokens"] = _get_remaining_tokens(user_id)
+        return cached_analysis
+
     resume = get_resume(user_id)
     ai_profile = get_ai_profile(user_id)
-    rem_tokens = token_limiter.get_remaining_tokens(user_id)
+    rem_tokens = _get_remaining_tokens(user_id)
 
     if not resume and not ai_profile:
         return {
@@ -535,7 +623,7 @@ def get_user_resume_analysis(user_id: int = Depends(get_current_user)):
     skills = (ai_profile.get("top_skills") if ai_profile else None) or (extract_skills_local(resume_text) if resume_text else [])
     score = (ai_profile.get("job_fit_score") if ai_profile else None) or 85
 
-    return {
+    result = {
         "has_resume": True,
         "analysis": {
             "match_score": score,
@@ -547,6 +635,9 @@ def get_user_resume_analysis(user_id: int = Depends(get_current_user)):
         "max_tokens_window": MAX_TOKENS_PER_WINDOW,
         "window_minutes": WINDOW_MINUTES
     }
+    # Cache the result for 24 hours (minus the dynamic remaining_tokens)
+    cache_set(analysis_cache_key, result, ttl_seconds=24 * 3600)
+    return result
 
 
 

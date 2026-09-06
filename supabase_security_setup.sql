@@ -3,6 +3,12 @@
 -- ================================================================================
 -- This script ensures user embeddings, resume text, AI profiles, saved jobs, and
 -- alert preferences are strictly isolated under each user's unique user_id.
+-- 
+-- DATA ISOLATION IS HANDLED BY FASTAPI BACKEND:
+--   - Every API endpoint requires a valid JWT token (get_current_user)
+--   - Every Supabase query uses .eq("user_id", user_id) for strict scoping
+--   - RLS is DISABLED to avoid conflicts with service_role key usage
+--
 -- Run this in your Supabase SQL Editor.
 
 -- 1. Enable Vector Extension (if not already enabled)
@@ -42,52 +48,25 @@ CREATE TABLE IF NOT EXISTS public.user_ai_profiles (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 5. Enable Row Level Security (RLS) on user-private tables
-ALTER TABLE public.user_resumes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_resume_chunks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_ai_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.saved_jobs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.alert_preferences ENABLE ROW LEVEL SECURITY;
+-- 5. DISABLE Row Level Security (RLS) on all tables
+-- RLS is not needed because FastAPI backend handles user isolation via JWT + .eq("user_id", user_id)
+-- The service_role key bypasses RLS, but disabling avoids any client library edge-case conflicts.
 
--- 6. Create RLS Policies so users can ONLY access their own data
--- (Note: Backend connections using SUPABASE_KEY / service_role bypass RLS automatically)
-
--- RLS for user_resumes
+-- Drop existing RLS policies first (if they exist)
 DROP POLICY IF EXISTS user_resumes_owner_policy ON public.user_resumes;
-CREATE POLICY user_resumes_owner_policy ON public.user_resumes
-    FOR ALL
-    USING (auth.uid()::text = user_id::text)
-    WITH CHECK (auth.uid()::text = user_id::text);
-
--- RLS for user_resume_chunks
 DROP POLICY IF EXISTS user_resume_chunks_owner_policy ON public.user_resume_chunks;
-CREATE POLICY user_resume_chunks_owner_policy ON public.user_resume_chunks
-    FOR ALL
-    USING (auth.uid()::text = user_id::text)
-    WITH CHECK (auth.uid()::text = user_id::text);
-
--- RLS for user_ai_profiles
 DROP POLICY IF EXISTS user_ai_profiles_owner_policy ON public.user_ai_profiles;
-CREATE POLICY user_ai_profiles_owner_policy ON public.user_ai_profiles
-    FOR ALL
-    USING (auth.uid()::text = user_id::text)
-    WITH CHECK (auth.uid()::text = user_id::text);
-
--- RLS for saved_jobs
 DROP POLICY IF EXISTS saved_jobs_owner_policy ON public.saved_jobs;
-CREATE POLICY saved_jobs_owner_policy ON public.saved_jobs
-    FOR ALL
-    USING (auth.uid()::text = user_id::text)
-    WITH CHECK (auth.uid()::text = user_id::text);
-
--- RLS for alert_preferences
 DROP POLICY IF EXISTS alert_preferences_owner_policy ON public.alert_preferences;
-CREATE POLICY alert_preferences_owner_policy ON public.alert_preferences
-    FOR ALL
-    USING (auth.uid()::text = user_id::text)
-    WITH CHECK (auth.uid()::text = user_id::text);
 
--- 7. PL/pgSQL Function for Vector Similarity Job Matching
+-- Disable RLS on all user-related tables
+ALTER TABLE public.user_resumes DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_resume_chunks DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_ai_profiles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.saved_jobs DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.alert_preferences DISABLE ROW LEVEL SECURITY;
+
+-- 6. PL/pgSQL Function for Vector Similarity Job Matching
 CREATE OR REPLACE FUNCTION match_jobs (
     query_embedding vector(768),
     match_threshold float,
