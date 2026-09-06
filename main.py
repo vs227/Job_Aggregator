@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import random
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from database import supabase
@@ -8,7 +9,12 @@ from cache import (
     rate_limit_check, token_bucket_consume, token_bucket_remaining, hash_text,
 )
 from auth import create_token, get_current_user, verify_password, hash_password
-from models import RegisterUser, LoginUser, JobsInput, SavedJob, AlertPreference, SearchJob, SourceInput, ResumeChatInput
+from models import (
+    RegisterUser, SendOtpInput, VerifyOtpInput, ResendOtpInput,
+    LoginUser, ForgotPasswordSendOtpInput, ForgotPasswordResetInput,
+    JobsInput, SavedJob, AlertPreference, SearchJob, SourceInput, ResumeChatInput
+)
+from alerts import send_otp_email, send_password_reset_otp_email
 import shutil
 import json
 import tempfile
@@ -89,28 +95,41 @@ _fallback_token_limiter = SlidingWindowTokenLimiter(max_tokens=MAX_TOKENS_PER_WI
 
 def _get_remaining_tokens(user_id: int) -> int:
     """Get remaining tokens — Redis first, in-memory fallback."""
-    remaining = token_bucket_remaining(f"user:{user_id}", MAX_TOKENS_PER_WINDOW, WINDOW_SECONDS)
-    if remaining == MAX_TOKENS_PER_WINDOW:
-        # Redis might be down, check in-memory too
-        mem_remaining = _fallback_token_limiter.get_remaining_tokens(user_id)
-        return min(remaining, mem_remaining)
-    return remaining
+    try:
+        r = _get_redis()
+        if r is not None:
+            rem = token_bucket_remaining(f"user:{user_id}", MAX_TOKENS_PER_WINDOW, WINDOW_SECONDS)
+            if rem < MAX_TOKENS_PER_WINDOW:
+                return rem
+    except Exception as e:
+        print(f"[TokenBucket] Redis remaining check error: {e}")
+    return _fallback_token_limiter.get_remaining_tokens(user_id)
 
 
 def _consume_tokens(user_id: int, tokens: int = 450) -> int:
     """Consume tokens — Redis first, in-memory fallback."""
-    allowed, remaining = token_bucket_consume(f"user:{user_id}", tokens, MAX_TOKENS_PER_WINDOW, WINDOW_SECONDS)
-    if not allowed:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Token rate limit exceeded (5,000 tokens / 1 hour). You have {remaining} tokens remaining in this 1-hour window. Please wait a moment!"
-        )
-    # Also track in-memory as backup
+    mem_rem = MAX_TOKENS_PER_WINDOW
     try:
-        _fallback_token_limiter.check_and_consume(user_id, tokens)
+        mem_rem = _fallback_token_limiter.check_and_consume(user_id, tokens)
     except HTTPException:
-        pass  # Redis is the source of truth
-    return remaining
+        pass
+
+    try:
+        r = _get_redis()
+        if r is not None:
+            allowed, remaining = token_bucket_consume(f"user:{user_id}", tokens, MAX_TOKENS_PER_WINDOW, WINDOW_SECONDS)
+            if not allowed:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Token rate limit exceeded (5,000 tokens / 30 mins). You have {remaining} tokens remaining in this 30-minute window. Please wait a moment!"
+                )
+            return remaining
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[TokenBucket] Redis consume error: {e}")
+
+    return mem_rem
 
 scheduler = BackgroundScheduler()
 
@@ -161,27 +180,191 @@ def home():
         "status": "online"
     }
 
-@app.post("/register")
-def register(user: RegisterUser):
-    existing_user = (supabase.table("users").select("*").eq("email", user.email).execute())
+# ─── OTP Helper Storage Functions ────────────────────────────────────
+_memory_otps = {}
+
+def _store_otp(email: str, otp: str, username: str, password_hash: str):
+    email_clean = email.strip().lower()
+    data = {"otp": str(otp), "username": username, "password_hash": password_hash}
+    cache_set(f"otp:{email_clean}", data, ttl_seconds=600)
+    _memory_otps[email_clean] = (str(otp), data, time.time() + 600)
+
+def _verify_otp_data(email: str, otp: str) -> dict:
+    email_clean = email.strip().lower()
+    data = cache_get(f"otp:{email_clean}")
+    if not data and email_clean in _memory_otps:
+        stored_otp, stored_data, expires_at = _memory_otps[email_clean]
+        if time.time() < expires_at:
+            data = stored_data
+
+    if not data:
+        return None
+    if str(data.get("otp")).strip() == str(otp).strip():
+        cache_delete(f"otp:{email_clean}")
+        _memory_otps.pop(email_clean, None)
+        return data
+    return None
+
+
+@app.post("/register/send-otp")
+def send_registration_otp(user_data: SendOtpInput):
+    email_clean = user_data.email.strip().lower()
+
+    # Check if user email is already registered
+    existing_user = (supabase.table("users").select("id").eq("email", email_clean).execute())
     if existing_user.data:
         raise HTTPException(
             status_code=400,
-            detail="Email already exists"
+            detail="Email is already registered. Please login instead."
         )
 
-    hashed = hash_password(user.password)
-    new_user = (supabase.table("users").insert({
-            "username": user.username,
-            "email": user.email,
-            "password_hash": hashed
-        }).execute()
-    )
+    otp = f"{random.randint(100000, 999999)}"
+    pwd_hash = hash_password(user_data.password)
+    _store_otp(email_clean, otp, user_data.username, pwd_hash)
+
+    sent = send_otp_email(email_clean, otp)
+    if not sent:
+        print(f"[OTP Warning] Failed to send email to {email_clean}. Verification OTP is: {otp}")
 
     return {
-        "message": "User registered successfully",
-        "user": new_user.data[0]
+        "message": f"Verification code sent to {email_clean}",
+        "email": email_clean
     }
+
+
+@app.post("/register/verify-otp")
+def verify_registration_otp(verify_data: VerifyOtpInput):
+    email_clean = verify_data.email.strip().lower()
+
+    otp_data = _verify_otp_data(email_clean, verify_data.otp)
+    if not otp_data:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or expired 6-digit verification code. Please check your inbox or click Resend."
+        )
+
+    # Double check if user account was created concurrently
+    res_check = supabase.table("users").select("id, email").eq("email", email_clean).execute()
+    if res_check.data:
+        user = res_check.data[0]
+    else:
+        username = otp_data.get("username") or verify_data.username
+        pwd_hash = otp_data.get("password_hash") or hash_password(verify_data.password)
+
+        insert_res = (supabase.table("users").insert({
+            "username": username,
+            "email": email_clean,
+            "password_hash": pwd_hash
+        }).execute())
+
+        if not insert_res.data:
+            raise HTTPException(status_code=500, detail="Failed to create user account.")
+        user = insert_res.data[0]
+
+    token = create_token({"user_id": user["id"], "email": user["email"]})
+    return {
+        "message": "Account verified and registered successfully!",
+        "access_token": token,
+        "token_type": "bearer",
+        "user": user
+    }
+
+
+@app.post("/register/resend-otp")
+def resend_registration_otp(data: ResendOtpInput):
+    email_clean = data.email.strip().lower()
+    otp_data = cache_get(f"otp:{email_clean}")
+
+    username = "User"
+    pwd_hash = ""
+    if otp_data:
+        username = otp_data.get("username", "User")
+        pwd_hash = otp_data.get("password_hash", "")
+    elif email_clean in _memory_otps:
+        _, stored_data, _ = _memory_otps[email_clean]
+        username = stored_data.get("username", "User")
+        pwd_hash = stored_data.get("password_hash", "")
+
+    otp = f"{random.randint(100000, 999999)}"
+    _store_otp(email_clean, otp, username, pwd_hash)
+    send_otp_email(email_clean, otp)
+    return {"message": f"New verification code sent to {email_clean}"}
+
+
+@app.post("/register")
+def register(user: RegisterUser):
+    # Alias /register to /register/send-otp for backward compatibility
+    return send_registration_otp(SendOtpInput(username=user.username, email=user.email, password=user.password))
+
+@app.post("/auth/forgot-password/send-otp")
+def forgot_password_send_otp(data: ForgotPasswordSendOtpInput):
+    email_clean = data.email.strip().lower()
+
+    # Check if user exists
+    res = supabase.table("users").select("id, email").eq("email", email_clean).execute()
+    if not res.data:
+        raise HTTPException(
+            status_code=404,
+            detail="No account found with this email address. Please check your spelling or register."
+        )
+
+    otp = f"{random.randint(100000, 999999)}"
+    cache_set(f"reset_otp:{email_clean}", {"otp": str(otp)}, ttl_seconds=600)
+    _memory_otps[f"reset:{email_clean}"] = (str(otp), {"otp": str(otp)}, time.time() + 600)
+
+    sent = send_password_reset_otp_email(email_clean, otp)
+    if not sent:
+        print(f"[Password Reset Warning] Failed to send email to {email_clean}. Reset OTP is: {otp}")
+
+    return {
+        "message": f"Password reset verification code sent to {email_clean}",
+        "email": email_clean
+    }
+
+
+@app.post("/auth/forgot-password/reset")
+def forgot_password_reset(data: ForgotPasswordResetInput):
+    email_clean = data.email.strip().lower()
+
+    cached_otp_data = cache_get(f"reset_otp:{email_clean}")
+    stored_otp = None
+    if cached_otp_data:
+        stored_otp = str(cached_otp_data.get("otp"))
+    elif f"reset:{email_clean}" in _memory_otps:
+        otp_val, _, expires_at = _memory_otps[f"reset:{email_clean}"]
+        if time.time() < expires_at:
+            stored_otp = otp_val
+
+    if not stored_otp or stored_otp != data.otp.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or expired 6-digit verification code. Please request a new OTP."
+        )
+
+    # Clean up OTP after single use
+    cache_delete(f"reset_otp:{email_clean}")
+    _memory_otps.pop(f"reset:{email_clean}", None)
+
+    # Hash new password and update in Supabase
+    new_pwd_hash = hash_password(data.new_password)
+    res_update = supabase.table("users").update({"password_hash": new_pwd_hash}).eq("email", email_clean).execute()
+
+    if not res_update.data:
+        # Fetch user
+        res_user = supabase.table("users").select("id, email").eq("email", email_clean).execute()
+        if not res_user.data:
+            raise HTTPException(status_code=404, detail="User account not found.")
+        user = res_user.data[0]
+    else:
+        user = res_update.data[0]
+
+    token = create_token({"user_id": user["id"], "email": user["email"]})
+    return {
+        "message": "Password reset successfully!",
+        "access_token": token,
+        "token_type": "bearer"
+    }
+
 
 @app.post("/login")
 def login(user: LoginUser):

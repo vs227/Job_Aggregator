@@ -161,7 +161,7 @@ def rate_limit_check(key: str, max_requests: int, window_seconds: int = 60) -> b
         return True  # Allow on Redis error
 
 
-def token_bucket_consume(key: str, tokens: int, max_tokens: int, window_seconds: int = 3600):
+def token_bucket_consume(key: str, tokens: int, max_tokens: int, window_seconds: int = 1800):
     """
     Token rate limiter using Redis hash with sliding window.
     Returns (allowed: bool, remaining: int).
@@ -205,7 +205,7 @@ def token_bucket_consume(key: str, tokens: int, max_tokens: int, window_seconds:
         return True, max_tokens
 
 
-def token_bucket_remaining(key: str, max_tokens: int, window_seconds: int = 3600) -> int:
+def token_bucket_remaining(key: str, max_tokens: int, window_seconds: int = 1800) -> int:
     """Get remaining tokens for a user without consuming any."""
     try:
         r = _get_redis()

@@ -73,6 +73,78 @@ def send_email(to_email, keyword, jobs, profile=None):
         print(f"Email error sending to {to_email}: {e}")
 
 
+def send_otp_email(to_email, otp_code):
+    if not SMTP_EMAIL or not SMTP_PASSWORD:
+        print(f"[OTP Email] SMTP_EMAIL or SMTP_PASSWORD not set. Verification OTP for {to_email} is: {otp_code}")
+        return True
+
+    text_body = f"Your HirePulse verification code is: {otp_code}\n\nThis code will expire in 10 minutes."
+    html_body = f"""
+    <div style="max-width:500px;margin:0 auto;font-family:sans-serif;background:#0c0c0c;color:#fafafa;padding:32px;border-radius:12px;border:1px solid rgba(255,255,255,0.1)">
+        <h2 style="color:#ffffff;margin-top:0;font-size:1.4rem">Verify Your HirePulse Account</h2>
+        <p style="color:#a3a3a3;font-size:0.95rem;line-height:1.5">Use the following 6-digit verification code to complete your registration:</p>
+        <div style="font-size:2.2rem;font-weight:800;letter-spacing:8px;color:#3b82f6;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);padding:16px;text-align:center;border-radius:8px;margin:24px 0">
+            {otp_code}
+        </div>
+        <p style="color:#737373;font-size:0.85rem;margin-bottom:0">This code will expire in 10 minutes. If you did not request this verification, please ignore this email.</p>
+    </div>
+    """
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"{otp_code} is your HirePulse verification code"
+        msg["From"] = f"HirePulse AI <{SMTP_EMAIL}>"
+        msg["To"] = to_email
+
+        msg.attach(MIMEText(text_body, "plain"))
+        msg.attach(MIMEText(html_body, "html"))
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
+        print(f"[OTP Email] Verification code {otp_code} sent successfully to {to_email}")
+        return True
+    except Exception as e:
+        print(f"[OTP Email] Error sending verification code to {to_email}: {e}")
+        return False
+
+
+def send_password_reset_otp_email(to_email, otp_code):
+    if not SMTP_EMAIL or not SMTP_PASSWORD:
+        print(f"[Password Reset OTP] SMTP_EMAIL or SMTP_PASSWORD not set. Reset OTP for {to_email} is: {otp_code}")
+        return True
+
+    text_body = f"Your HirePulse password reset code is: {otp_code}\n\nThis code will expire in 10 minutes."
+    html_body = f"""
+    <div style="max-width:500px;margin:0 auto;font-family:sans-serif;background:#0c0c0c;color:#fafafa;padding:32px;border-radius:12px;border:1px solid rgba(255,255,255,0.1)">
+        <h2 style="color:#ffffff;margin-top:0;font-size:1.4rem">Reset Your HirePulse Password</h2>
+        <p style="color:#a3a3a3;font-size:0.95rem;line-height:1.5">Use the following 6-digit verification code to reset your password and verify your identity:</p>
+        <div style="font-size:2.2rem;font-weight:800;letter-spacing:8px;color:#ef4444;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);padding:16px;text-align:center;border-radius:8px;margin:24px 0">
+            {otp_code}
+        </div>
+        <p style="color:#737373;font-size:0.85rem;margin-bottom:0">This code will expire in 10 minutes. If you did not request a password reset, please ignore this email.</p>
+    </div>
+    """
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"{otp_code} is your HirePulse password reset code"
+        msg["From"] = f"HirePulse Security <{SMTP_EMAIL}>"
+        msg["To"] = to_email
+
+        msg.attach(MIMEText(text_body, "plain"))
+        msg.attach(MIMEText(html_body, "html"))
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
+        print(f"[Password Reset OTP] Code {otp_code} sent successfully to {to_email}")
+        return True
+    except Exception as e:
+        print(f"[Password Reset OTP] Error sending code to {to_email}: {e}")
+        return False
+
+
 
 def _filter_jobs(jobs, keyword, location=None, min_salary=None):
     matched = []

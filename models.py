@@ -4,11 +4,33 @@ from typing import Optional, List
 class RegisterUser(BaseModel):
     username: str
     email: EmailStr
-    password:str
+    password: str
+
+class SendOtpInput(BaseModel):
+    username: str
+    email: EmailStr
+    password: str
+
+class VerifyOtpInput(BaseModel):
+    email: EmailStr
+    otp: str
+    username: str
+    password: str
+
+class ResendOtpInput(BaseModel):
+    email: EmailStr
 
 class LoginUser(BaseModel):
     email: EmailStr
     password: str
+
+class ForgotPasswordSendOtpInput(BaseModel):
+    email: EmailStr
+
+class ForgotPasswordResetInput(BaseModel):
+    email: EmailStr
+    otp: str
+    new_password: str
 
 class JobsInput(BaseModel):
     title: str

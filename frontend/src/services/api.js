@@ -53,9 +53,30 @@ async function request(endpoint, options = {}) {
 }
 
 export function registerUser(username, email, password) {
-  return request('/register', {
+  return request('/register/send-otp', {
     method: 'POST',
     body: JSON.stringify({ username, email, password }),
+  });
+}
+
+export function sendRegisterOtp(username, email, password) {
+  return request('/register/send-otp', {
+    method: 'POST',
+    body: JSON.stringify({ username, email, password }),
+  });
+}
+
+export function verifyRegisterOtp(email, otp, username, password) {
+  return request('/register/verify-otp', {
+    method: 'POST',
+    body: JSON.stringify({ email, otp, username, password }),
+  });
+}
+
+export function resendRegisterOtp(email) {
+  return request('/register/resend-otp', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
   });
 }
 
@@ -63,6 +84,20 @@ export function loginUser(email, password) {
   return request('/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
+  });
+}
+
+export function sendForgotPasswordOtp(email) {
+  return request('/auth/forgot-password/send-otp', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function resetPasswordWithOtp(email, otp, newPassword) {
+  return request('/auth/forgot-password/reset', {
+    method: 'POST',
+    body: JSON.stringify({ email, otp, new_password: newPassword }),
   });
 }
 
