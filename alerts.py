@@ -21,19 +21,23 @@ def _get_sender_email():
     ).strip().strip('"').strip("'")
 
 
-def _send_brevo_api_email(to_email: str, subject: str, html_body: str, sender_name: str = "HirePulse AI") -> bool:
+def _send_brevo_api_email(to_email: str, subject: str, html_body: str, text_body: str = "", sender_name: str = "HirePulse AI") -> bool:
     api_key = (os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY") or "").strip()
     if not api_key:
         print("[Email Warning] BREVO_API_KEY is not set in environment.")
         return False
     sender_email = _get_sender_email()
     try:
-        payload = json.dumps({
+        payload_dict = {
             "sender": {"name": sender_name, "email": sender_email},
             "to": [{"email": to_email}],
             "subject": subject,
             "htmlContent": html_body
-        }).encode("utf-8")
+        }
+        if text_body:
+            payload_dict["textContent"] = text_body
+
+        payload = json.dumps(payload_dict).encode("utf-8")
         req = urllib.request.Request(
             "https://api.brevo.com/v3/smtp/email",
             data=payload,
@@ -56,7 +60,7 @@ def _send_brevo_api_email(to_email: str, subject: str, html_body: str, sender_na
 def _send_smtp_email(to_email: str, subject: str, text_body: str, html_body: str, sender_name: str = "HirePulse AI") -> bool:
     # Primary: Brevo HTTPS API
     if os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY"):
-        return _send_brevo_api_email(to_email, subject, html_body, sender_name)
+        return _send_brevo_api_email(to_email, subject, html_body, text_body=text_body, sender_name=sender_name)
 
     # Fallback SMTP if configured
     smtp_email = _get_sender_email()
@@ -96,17 +100,13 @@ def test_smtp_diagnostic(to_email: str) -> dict:
     }
 
     if brevo_key:
-        brevo_ok = _send_brevo_api_email(to_email, "HirePulse Diagnostic Test", "<p>Test email via Brevo HTTPS API from Render</p>")
+        brevo_ok = _send_brevo_api_email(to_email, "HirePulse Diagnostic Test", "<p>Test email via Brevo HTTPS API from Render</p>", text_body="Test email via Brevo")
         results["brevo_api"] = "SUCCESS" if brevo_ok else "FAILED"
         results["success"] = brevo_ok
         return results
 
     results["error"] = "BREVO_API_KEY missing in environment variables"
     return results
-
-
-
-
 
 
 def send_email(to_email, keyword, jobs, profile=None):
@@ -149,31 +149,31 @@ def send_email(to_email, keyword, jobs, profile=None):
 def send_otp_email(to_email, otp_code):
     text_body = f"Your HirePulse verification code is: {otp_code}\n\nThis code will expire in 10 minutes."
     html_body = f"""
-    <div style="max-width:500px;margin:0 auto;font-family:sans-serif;background:#0c0c0c;color:#fafafa;padding:32px;border-radius:12px;border:1px solid rgba(255,255,255,0.1)">
-        <h2 style="color:#ffffff;margin-top:0;font-size:1.4rem">Verify Your HirePulse Account</h2>
-        <p style="color:#a3a3a3;font-size:0.95rem;line-height:1.5">Use the following 6-digit verification code to complete your registration:</p>
-        <div style="font-size:2.2rem;font-weight:800;letter-spacing:8px;color:#3b82f6;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);padding:16px;text-align:center;border-radius:8px;margin:24px 0">
+    <div style="max-width:500px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff;color:#111827;padding:32px;border-radius:12px;border:1px solid #e5e7eb;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05)">
+        <h2 style="color:#111827;margin-top:0;font-size:1.4rem;font-weight:700">Verify Your HirePulse Account</h2>
+        <p style="color:#4b5563;font-size:0.95rem;line-height:1.5">Use the following 6-digit verification code to complete your registration:</p>
+        <div style="font-size:2.2rem;font-weight:800;letter-spacing:8px;color:#2563eb;background:#eff6ff;border:1px solid #bfdbfe;padding:16px;text-align:center;border-radius:8px;margin:24px 0">
             {otp_code}
         </div>
-        <p style="color:#737373;font-size:0.85rem;margin-bottom:0">This code will expire in 10 minutes. If you did not request this verification, please ignore this email.</p>
+        <p style="color:#6b7280;font-size:0.85rem;margin-bottom:0">This code will expire in 10 minutes. If you did not request this verification, please ignore this email.</p>
     </div>
     """
-    return _send_smtp_email(to_email, f"{otp_code} is your HirePulse verification code", text_body, html_body, sender_name="HirePulse AI")
+    return _send_smtp_email(to_email, f"Your HirePulse verification code is {otp_code}", text_body, html_body, sender_name="HirePulse AI")
 
 
 def send_password_reset_otp_email(to_email, otp_code):
     text_body = f"Your HirePulse password reset code is: {otp_code}\n\nThis code will expire in 10 minutes."
     html_body = f"""
-    <div style="max-width:500px;margin:0 auto;font-family:sans-serif;background:#0c0c0c;color:#fafafa;padding:32px;border-radius:12px;border:1px solid rgba(255,255,255,0.1)">
-        <h2 style="color:#ffffff;margin-top:0;font-size:1.4rem">Reset Your HirePulse Password</h2>
-        <p style="color:#a3a3a3;font-size:0.95rem;line-height:1.5">Use the following 6-digit verification code to reset your password and verify your identity:</p>
-        <div style="font-size:2.2rem;font-weight:800;letter-spacing:8px;color:#ef4444;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);padding:16px;text-align:center;border-radius:8px;margin:24px 0">
+    <div style="max-width:500px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff;color:#111827;padding:32px;border-radius:12px;border:1px solid #e5e7eb;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05)">
+        <h2 style="color:#111827;margin-top:0;font-size:1.4rem;font-weight:700">Reset Your HirePulse Password</h2>
+        <p style="color:#4b5563;font-size:0.95rem;line-height:1.5">Use the following 6-digit verification code to reset your password and verify your identity:</p>
+        <div style="font-size:2.2rem;font-weight:800;letter-spacing:8px;color:#dc2626;background:#fef2f2;border:1px solid #fecaca;padding:16px;text-align:center;border-radius:8px;margin:24px 0">
             {otp_code}
         </div>
-        <p style="color:#737373;font-size:0.85rem;margin-bottom:0">This code will expire in 10 minutes. If you did not request a password reset, please ignore this email.</p>
+        <p style="color:#6b7280;font-size:0.85rem;margin-bottom:0">This code will expire in 10 minutes. If you did not request a password reset, please ignore this email.</p>
     </div>
     """
-    return _send_smtp_email(to_email, f"{otp_code} is your HirePulse password reset code", text_body, html_body, sender_name="HirePulse Security")
+    return _send_smtp_email(to_email, f"Your HirePulse password reset code is {otp_code}", text_body, html_body, sender_name="HirePulse Security")")
 
 
 
