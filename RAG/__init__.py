@@ -51,7 +51,8 @@ CHAT_PROMPT = ChatPromptTemplate.from_template(
     "2. ONLY attach/return jobs in the 'jobs' list if the user explicitly asks for job suggestions, recommendations, or matches (e.g. 'suggest me jobs', 'show matching jobs', 'recommend roles', 'find jobs', 'jobs for me').\n"
     "3. If the user query is a greeting ('hi', 'hello'), a resume question, career advice, or technical question, KEEP THE 'jobs' LIST COMPLETELY EMPTY ([])! Focus strictly on answering in 'text'.\n"
     "4. When the user DOES explicitly ask to suggest jobs, evaluate each candidate job against their top skills and return ONLY suitable jobs with custom match reasons.\n"
-    "5. NO MATCHING JOBS RULE: If there are no suitable jobs matching the user's profile in the candidate jobs list or if 'jobs' is empty, state clearly in 'text': 'Currently, there are no suitable job postings matching your profile in our database. Please set an email alert for your preferred roles in the **Job Alerts** section so you get notified instantly when new matching positions are added!'"
+    "5. NO MATCHING JOBS RULE: If there are no suitable jobs matching the user's profile in the candidate jobs list or if 'jobs' is empty, state clearly in 'text': 'Currently, there are no suitable job postings matching your profile in our database. Please set an email alert for your preferred roles in the **Job Alerts** section so you get notified instantly when new matching positions are added!'\n"
+    "6. FORMATTING RULE: Write your text response using well-structured, clear paragraphs and clean bullet points (`- `) or numbered steps (`1. `, `2. `) whenever providing recommendations, skill advice, or career steps. Use **bolding** for key terms."
 )
 
 

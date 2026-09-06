@@ -118,18 +118,19 @@ function ResumePage() {
     );
   };
 
-  // Formatter for AI output: renders bold headers and styled bullet points (Beacon RAG standard)
+  // Formatter for AI output: renders bold headers, paragraphs, and styled bullet/numbered lists
   function renderFormattedMessage(text) {
     if (!text) return null;
 
     const lines = text.split('\n');
     return lines.map((line, idx) => {
       const cleanLine = line.trim();
-      if (!cleanLine) return <div key={idx} style={{ height: '4px' }} />;
+      if (!cleanLine) return <div key={idx} style={{ height: '8px' }} />;
 
-      const bulletMatch = cleanLine.match(/^[*\-]\s+(.*)/);
+      const bulletMatch = cleanLine.match(/^([*\-•]|\d+\.)\s+(.*)/);
       const isBullet = Boolean(bulletMatch);
-      const lineContent = isBullet ? bulletMatch[1] : cleanLine;
+      const bulletSymbol = isBullet ? bulletMatch[1] : '';
+      const lineContent = isBullet ? bulletMatch[2] : cleanLine;
 
       const parts = lineContent.split(/(\*\*.*?\*\*)/g);
       const formattedContent = parts.map((part, pIdx) => {
@@ -144,16 +145,19 @@ function ResumePage() {
       });
 
       if (isBullet) {
+        const isNumber = /^\d+\./.test(bulletSymbol);
         return (
-          <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', margin: '4px 0 4px 4px' }}>
-            <span style={{ opacity: 0.6, fontSize: '0.85rem', lineHeight: '1.4' }}>-</span>
-            <span style={{ flex: 1, lineHeight: '1.45' }}>{formattedContent}</span>
+          <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', margin: '6px 0 6px 4px', lineHeight: '1.6' }}>
+            <span style={{ color: 'var(--accent-blue)', fontWeight: isNumber ? 700 : 900, fontSize: isNumber ? '0.85rem' : '1.1rem', minWidth: '18px', flexShrink: 0, marginTop: '-1px' }}>
+              {isNumber ? bulletSymbol : '•'}
+            </span>
+            <span style={{ flex: 1, color: 'var(--text-primary)', fontSize: '0.9rem' }}>{formattedContent}</span>
           </div>
         );
       }
 
       return (
-        <div key={idx} style={{ margin: '3px 0', lineHeight: '1.45' }}>
+        <div key={idx} style={{ margin: '6px 0', lineHeight: '1.6', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
           {formattedContent}
         </div>
       );
