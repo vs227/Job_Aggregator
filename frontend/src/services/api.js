@@ -146,3 +146,12 @@ export function chatWithResume(message) {
     body: JSON.stringify({ message })
   });
 }
+
+export function fetchResumeAnalysis() {
+  return request('/resume/analysis');
+}
+
+export function logoutUser() {
+  return request('/logout', { method: 'POST' });
+}
+

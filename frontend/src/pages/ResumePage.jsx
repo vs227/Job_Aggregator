@@ -2,17 +2,17 @@ import React, { useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { 
   MdCloudUpload, 
-  MdContactPage, 
   MdCheckCircle, 
-  MdCancel, 
   MdInfo,
   MdAutorenew,
   MdBookmark,
-  MdBookmarkBorder
+  MdBookmarkBorder,
+  MdDeleteSweep,
+  MdAutoAwesome
 } from 'react-icons/md';
 import { IoIosPaperPlane } from 'react-icons/io';
 import './ResumePage.css';
-import { uploadResume, chatWithResume, saveJob, unsaveJob, fetchSavedJobs } from '../services/api';
+import { uploadResume, chatWithResume, saveJob, unsaveJob, fetchSavedJobs, fetchResumeAnalysis } from '../services/api';
 
 function ResumePage() {
   const [messages, setMessages] = useState([
@@ -27,29 +27,19 @@ function ResumePage() {
   const chatEndRef = useRef(null);
 
   const [file, setFile] = useState(null);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
-  const [fillHeight, setFillHeight] = useState('0%');
   const [analysisData, setAnalysisData] = useState(null);
   const [savedJobIds, setSavedJobIds] = useState(new Set());
+  const [remainingQueries, setRemainingQueries] = useState(30);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
   useEffect(() => {
-    if (showAnalysis) {
-      const timer = setTimeout(() => {
-        setFillHeight(`${analysisData?.match_score || 87}%`);
-      }, 100);
-      return () => clearTimeout(timer);
-    } else {
-      setFillHeight('0%');
-    }
-  }, [showAnalysis, analysisData]);
-
-  useEffect(() => {
-    async function loadSavedJobs() {
+    async function loadInitialData() {
       try {
         const data = await fetchSavedJobs();
         const ids = new Set(data.map(j => j.id));
@@ -57,8 +47,22 @@ function ResumePage() {
       } catch (err) {
         console.error("Failed to load saved jobs", err);
       }
+      try {
+        const resumeRes = await fetchResumeAnalysis();
+        if (resumeRes && resumeRes.has_resume) {
+          setAnalysisData(resumeRes.analysis || null);
+          setShowAnalysis(true);
+        }
+        if (resumeRes && typeof resumeRes.remaining_daily === 'number') {
+          setRemainingQueries(resumeRes.remaining_daily);
+        }
+      } catch (err) {
+        console.log("No previous resume analysis found for user.");
+      } finally {
+        setInitialLoading(false);
+      }
     }
-    loadSavedJobs();
+    loadInitialData();
   }, []);
 
   async function handleSaveToggle(jobId) {
@@ -86,6 +90,76 @@ function ResumePage() {
     }
   }
 
+  // Beacon High-Speed Live Typewriter Animation
+  const typeTextFast = async (fullText, messageId, jobs = []) => {
+    if (!fullText) return;
+    let idx = 0;
+    const totalLen = fullText.length;
+    const chunkSize = Math.max(5, Math.ceil(totalLen / 45));
+
+    while (idx < totalLen) {
+      idx = Math.min(totalLen, idx + chunkSize);
+      const currentText = fullText.slice(0, idx);
+
+      setMessages(prev =>
+        prev.map(m =>
+          m.id === messageId
+            ? { ...m, text: currentText, typing: idx < totalLen, jobs: idx >= totalLen ? jobs : [] }
+            : m
+        )
+      );
+      await new Promise(res => setTimeout(res, 12));
+    }
+
+    setMessages(prev =>
+      prev.map(m =>
+        m.id === messageId ? { ...m, text: fullText, typing: false, jobs } : m
+      )
+    );
+  };
+
+  // Formatter for AI output: renders bold headers and styled bullet points (Beacon RAG standard)
+  function renderFormattedMessage(text) {
+    if (!text) return null;
+
+    const lines = text.split('\n');
+    return lines.map((line, idx) => {
+      const cleanLine = line.trim();
+      if (!cleanLine) return <div key={idx} style={{ height: '4px' }} />;
+
+      const bulletMatch = cleanLine.match(/^[*\-]\s+(.*)/);
+      const isBullet = Boolean(bulletMatch);
+      const lineContent = isBullet ? bulletMatch[1] : cleanLine;
+
+      const parts = lineContent.split(/(\*\*.*?\*\*)/g);
+      const formattedContent = parts.map((part, pIdx) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          return (
+            <strong key={pIdx} style={{ color: 'var(--text-primary)', fontWeight: 700 }}>
+              {part.slice(2, -2)}
+            </strong>
+          );
+        }
+        return part;
+      });
+
+      if (isBullet) {
+        return (
+          <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', margin: '4px 0 4px 4px' }}>
+            <span style={{ opacity: 0.6, fontSize: '0.85rem', lineHeight: '1.4' }}>-</span>
+            <span style={{ flex: 1, lineHeight: '1.45' }}>{formattedContent}</span>
+          </div>
+        );
+      }
+
+      return (
+        <div key={idx} style={{ margin: '3px 0', lineHeight: '1.45' }}>
+          {formattedContent}
+        </div>
+      );
+    });
+  }
+
   async function handleSendMessage(e) {
     e.preventDefault();
     if (!inputVal.trim() || isTyping) return;
@@ -97,24 +171,39 @@ function ResumePage() {
       text: userMsgVal
     };
 
+    const aiMsgId = Date.now() + 1;
     setMessages(prev => [...prev, newMsg]);
     setInputVal('');
     setIsTyping(true);
 
     try {
       const data = await chatWithResume(userMsgVal);
-      const aiReply = {
-        id: Date.now() + 1,
-        sender: 'ai',
-        text: data.response,
-        jobs: data.matches || []
-      };
-      setMessages(prev => [...prev, aiReply]);
+      const fullText = data.response || 'No response.';
+      const jobs = data.matches || [];
+      if (typeof data.remaining_daily === 'number') {
+        setRemainingQueries(data.remaining_daily);
+      }
+
+      // Add typing placeholder message
+      setMessages(prev => [
+        ...prev,
+        {
+          id: aiMsgId,
+          sender: 'ai',
+          text: '',
+          typing: true,
+          jobs: []
+        }
+      ]);
+
+      // Trigger high-speed typewriter output animation
+      await typeTextFast(fullText, aiMsgId, jobs);
     } catch (err) {
+      toast.error(err.message || 'Rate limit reached. Please try again later.');
       const errorReply = {
-        id: Date.now() + 1,
+        id: aiMsgId,
         sender: 'ai',
-        text: `Error: ${err.message || 'Failed to communicate with AI'}`
+        text: `Rate Limit Notice: ${err.message || 'You have reached the query rate limit. Please wait before asking another question.'}`
       };
       setMessages(prev => [...prev, errorReply]);
     } finally {
@@ -146,9 +235,14 @@ function ResumePage() {
     <div className="resume-page-layout fade-in">
 
         <div className="resume-upload-section">
-          <h2 className="section-title">Resume Analyzer & Matcher</h2>
+          {initialLoading && (
+            <div className="resume-loader-container">
+              <MdAutorenew className="resume-loader-icon" />
+              <span className="resume-loader-text">Restoring profile analysis...</span>
+            </div>
+          )}
 
-          {!showAnalysis && !analyzing && (
+          {!initialLoading && !showAnalysis && !analyzing && (
             <label className="upload-dropzone">
               <MdCloudUpload className="upload-icon" />
               <span className="upload-text-main">
@@ -167,94 +261,89 @@ function ResumePage() {
             </label>
           )}
 
-          {analyzing && (
+          {!initialLoading && analyzing && (
             <div className="resume-loader-container">
               <MdAutorenew className="resume-loader-icon" />
-              <span className="resume-loader-text">Parsing skills & calculating match score...</span>
+              <span className="resume-loader-text">Parsing skills & calculating vector embeddings...</span>
             </div>
           )}
 
-          {showAnalysis && !analyzing && (
+          {!initialLoading && showAnalysis && !analyzing && (
             <div className="analysis-results-card">
-              <div className="analysis-header">
+              <div className="analysis-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div className="analysis-header-info">
                   <h3>Analysis Complete</h3>
-                  <p>Matches evaluated against 125 active job listings</p>
-                  <button 
-                    className="reupload-btn" 
-                    onClick={() => { 
-                      setFile(null); 
-                      setShowAnalysis(false); 
-                      setAnalysisData(null);
-                    }}
-                  >
-                    <MdCloudUpload /> Upload New
-                  </button>
                 </div>
-
-                <div className="water-container">
-                  <div 
-                    className="water-fill" 
-                    style={{ height: fillHeight }}
-                  />
-                </div>
+                <button 
+                  className="reupload-btn" 
+                  style={{ marginTop: 0 }}
+                  onClick={() => { 
+                    setFile(null); 
+                    setShowAnalysis(false); 
+                    setAnalysisData(null);
+                  }}
+                >
+                  <MdCloudUpload /> Upload New
+                </button>
               </div>
 
-              <div className="analysis-skills-section">
-                <span className="skills-title">Matched Skills</span>
-                <div className="skills-grid">
-                  {analysisData?.matched_skills && analysisData.matched_skills.length > 0 ? (
-                    analysisData.matched_skills.map((skill, idx) => (
-                      <span key={idx} className="skills-badge match"><MdCheckCircle /> {skill}</span>
-                    ))
-                  ) : (
-                    <span className="skills-badge match" style={{ opacity: 0.6 }}><MdInfo /> No matched skills found</span>
-                  )}
-                </div>
-              </div>
 
               <div className="analysis-skills-section">
-                <span className="skills-title">Missing / Demanded Skills</span>
-                <div className="skills-grid">
-                  {analysisData?.missing_skills && analysisData.missing_skills.length > 0 ? (
-                    analysisData.missing_skills.map((skill, idx) => (
-                      <span key={idx} className="skills-badge missing"><MdCancel /> {skill}</span>
-                    ))
-                  ) : (
-                    <span className="skills-badge missing" style={{ opacity: 0.6 }}><MdInfo /> None identified</span>
-                  )}
-                </div>
-              </div>
-
-              <div className="analysis-skills-section">
-                <span className="skills-title">AI Optimization Recommendation</span>
+                <span className="skills-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <MdAutoAwesome className="ai-sparkle-icon" /> AI Optimization Recommendation
+                </span>
                 <div className="analysis-feedback-section">
                   <p className="analysis-feedback-text">
                     {analysisData?.recommendation || "Your resume has been processed. Ask the AI chat for personalized optimization steps."}
                   </p>
                 </div>
               </div>
+
+              <div className="analysis-skills-section">
+                <span className="skills-title">Your Skills</span>
+                <div className="skills-grid">
+                  {((analysisData?.extracted_skills || analysisData?.matched_skills) && (analysisData?.extracted_skills || analysisData?.matched_skills).length > 0) ? (
+                    (analysisData?.extracted_skills || analysisData?.matched_skills).map((skill, idx) => (
+                      <span key={idx} className="skills-badge match">{skill}</span>
+                    ))
+                  ) : (
+                    <span className="skills-badge match" style={{ opacity: 0.6 }}><MdInfo /> No skills extracted</span>
+                  )}
+                </div>
+              </div>
             </div>
           )}
+
         </div>
 
         <div className="animated-divider"></div>
 
         <div className="resume-chat-section">
-          <div className="chat-header">
-            <span className="chat-header-title">HirePulse Pivot AI</span>
+          <div className="chat-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span className="chat-header-title">HirePulse Pivot AI</span>
+              <span className="chat-limit-badge" title="Daily AI Chat Query Quota">
+                {remainingQueries}/30 Queries Left Today
+              </span>
+            </div>
+            <button 
+              className="btn-ghost" 
+              style={{ padding: '6px 12px', fontSize: '0.8rem', gap: '6px', borderRadius: '8px' }}
+              onClick={() => setMessages([{
+                id: Date.now(),
+                sender: 'ai',
+                text: 'Hello! I am HirePulse Pivot AI. Upload your resume on the left, and I will recommend matching jobs and help you optimize your profile.'
+              }])}
+            >
+              <MdDeleteSweep style={{ fontSize: '1rem' }} /> Clear Chat
+            </button>
           </div>
 
           <div className="chat-history">
             {messages.map((msg) => (
               <div key={msg.id} className={`chat-message ${msg.sender}`}>
                 <div className="chat-message-text">
-                  {msg.text.split('\n').map((line, idx) => (
-                    <React.Fragment key={idx}>
-                      {line}
-                      <br />
-                    </React.Fragment>
-                  ))}
+                  {msg.sender === 'ai' ? renderFormattedMessage(msg.text) : msg.text}
                 </div>
                 {msg.jobs && msg.jobs.length > 0 && (
                   <div className="chat-jobs-container">
@@ -275,7 +364,7 @@ function ResumePage() {
                         {job.location && (
                           <div className="chat-job-card-meta">
                             <span>{job.location}</span>
-                            {job.salary && <span> • ₹{Number(job.salary).toLocaleString()}</span>}
+                            {job.salary && <span> | INR {Number(job.salary).toLocaleString()}</span>}
                           </div>
                         )}
                         <p className="chat-job-card-reason">{job.match_reason}</p>
@@ -292,7 +381,7 @@ function ResumePage() {
                 )}
               </div>
             ))}
-            {isTyping && (
+            {isTyping && !messages.some(m => m.sender === 'ai' && m.typing) && (
               <div className="chat-message ai">
                 <div className="chat-typing-indicator">
                   <span></span><span></span><span></span>

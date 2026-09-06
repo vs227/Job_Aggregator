@@ -11,7 +11,6 @@ import DashboardPage from './pages/DashboardPage';
 import JobDetailPage from './pages/JobDetailPage';
 import SavedJobsPage from './pages/SavedJobsPage';
 import AlertsPage from './pages/AlertsPage';
-import ProfilePage from './pages/ProfilePage';
 import ResumePage from './pages/ResumePage';
 
 import { useEffect } from 'react';
@@ -91,15 +90,6 @@ function App() {
               element={
                 <ProtectedRoute>
                   <ResumePage />
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/profile"
-              element={
-                <ProtectedRoute>
-                  <ProfilePage />
                 </ProtectedRoute>
               }
             />

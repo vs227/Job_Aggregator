@@ -1,7 +1,7 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import { HiOutlineMenu, HiOutlineX } from 'react-icons/hi';
-import { MdDashboard, MdBookmark, MdNotifications, MdPerson, MdLightMode, MdDarkMode, MdContactPage } from 'react-icons/md';
+import { MdDashboard, MdBookmark, MdNotifications, MdPerson, MdLightMode, MdDarkMode, MdContactPage, MdLogout } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import logo from '../assets/logo.png';
 import './Navbar.css';
@@ -90,13 +90,15 @@ function Navbar() {
                       <div className="dropdown-email">{user?.email || ''}</div>
                     </div>
                     <div className="dropdown-divider"></div>
-                    <Link 
-                      to="/profile" 
-                      className="dropdown-item" 
-                      onClick={() => setProfileOpen(false)}
+                    <button 
+                      className="dropdown-item logout-item"
+                      onClick={() => {
+                        setProfileOpen(false);
+                        handleLogout();
+                      }}
                     >
-                      <MdPerson /> Profile
-                    </Link>
+                      <MdLogout /> Logout
+                    </button>
                   </div>
                 )}
               </div>

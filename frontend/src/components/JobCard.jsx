@@ -31,7 +31,7 @@ function JobCard({ job, isSaved, onSaveToggle }) {
           {salary && (
             <div className="job-card-meta-item">
               <MdAttachMoney />
-              <span>₹{salary.toLocaleString()}</span>
+              <span>INR {Number(salary).toLocaleString()}</span>
             </div>
           )}
         </div>

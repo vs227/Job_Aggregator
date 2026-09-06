@@ -6,12 +6,13 @@
   border-radius: var(--radius-lg);
   position: relative;
   overflow: hidden;
-  transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+  border: none;
+  transition: transform var(--transition), box-shadow var(--transition);
 }
 
 .job-card:hover {
   transform: translateY(-4px);
-  border-color: var(--border-glass-hover);
+  border-color: transparent;
   box-shadow: var(--shadow-glow);
 }
 
@@ -63,7 +64,7 @@
   gap: 8px;
   margin-top: auto;
   padding-top: 16px;
-  border-top: 1px solid var(--border-glass);
+  border-top: none;
 }
 
 .job-card-save-btn {
