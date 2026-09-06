@@ -5,7 +5,7 @@ from email.mime.text import MIMEText
 from database import supabase
 from RAG import get_ai_profile
 
-SMTP_EMAIL = os.getenv("SMTP_EMAIL", "vaishnavshinde186@gmail.com")
+SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").replace(" ", "")
 
 
