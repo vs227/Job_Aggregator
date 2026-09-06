@@ -173,7 +173,9 @@ def send_password_reset_otp_email(to_email, otp_code):
         <p style="color:#6b7280;font-size:0.85rem;margin-bottom:0">This code will expire in 10 minutes. If you did not request a password reset, please ignore this email.</p>
     </div>
     """
-    return _send_smtp_email(to_email, f"Your HirePulse password reset code is {otp_code}", text_body, html_body, sender_name="HirePulse Security")")
+    return _send_smtp_email(to_email, f"Your HirePulse password reset code is {otp_code}", text_body, html_body, sender_name="HirePulse Security")
+
+
 
 
 
