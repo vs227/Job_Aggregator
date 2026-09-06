@@ -6,8 +6,22 @@ from database import supabase
 from RAG import get_ai_profile
 
 def _get_smtp_credentials():
-    email = os.getenv("SMTP_EMAIL", "").strip().strip('"').strip("'")
-    password = os.getenv("SMTP_PASSWORD", "").replace(" ", "").strip().strip('"').strip("'")
+    email = (
+        os.getenv("SMTP_EMAIL") or
+        os.getenv("SMTP_USER") or
+        os.getenv("MAIL_USERNAME") or
+        os.getenv("EMAIL_HOST_USER") or
+        ""
+    ).strip().strip('"').strip("'")
+
+    password = (
+        os.getenv("SMTP_PASSWORD") or
+        os.getenv("SMTP_PASS") or
+        os.getenv("MAIL_PASSWORD") or
+        os.getenv("EMAIL_HOST_PASSWORD") or
+        ""
+    ).replace(" ", "").strip().strip('"').strip("'")
+
     return email, password
 
 
@@ -15,7 +29,7 @@ def _send_smtp_email(to_email: str, subject: str, text_body: str, html_body: str
     smtp_email, smtp_password = _get_smtp_credentials()
 
     if not smtp_email or not smtp_password:
-        print(f"[Email Warning] SMTP_EMAIL or SMTP_PASSWORD not set in environment.")
+        print(f"[Email Error] SMTP credentials not found in environment (checked SMTP_EMAIL/SMTP_USER/SMTP_PASSWORD/SMTP_PASS). Email to {to_email} skipped.")
         return False
 
     msg = MIMEMultipart("alternative")
@@ -87,11 +101,6 @@ def send_email(to_email, keyword, jobs, profile=None):
 
 
 def send_otp_email(to_email, otp_code):
-    smtp_email, smtp_password = _get_smtp_credentials()
-    if not smtp_email or not smtp_password:
-        print(f"[OTP Email] SMTP_EMAIL or SMTP_PASSWORD not set. Verification OTP for {to_email} is: {otp_code}")
-        return True
-
     text_body = f"Your HirePulse verification code is: {otp_code}\n\nThis code will expire in 10 minutes."
     html_body = f"""
     <div style="max-width:500px;margin:0 auto;font-family:sans-serif;background:#0c0c0c;color:#fafafa;padding:32px;border-radius:12px;border:1px solid rgba(255,255,255,0.1)">
@@ -107,11 +116,6 @@ def send_otp_email(to_email, otp_code):
 
 
 def send_password_reset_otp_email(to_email, otp_code):
-    smtp_email, smtp_password = _get_smtp_credentials()
-    if not smtp_email or not smtp_password:
-        print(f"[Password Reset OTP] SMTP_EMAIL or SMTP_PASSWORD not set. Reset OTP for {to_email} is: {otp_code}")
-        return True
-
     text_body = f"Your HirePulse password reset code is: {otp_code}\n\nThis code will expire in 10 minutes."
     html_body = f"""
     <div style="max-width:500px;margin:0 auto;font-family:sans-serif;background:#0c0c0c;color:#fafafa;padding:32px;border-radius:12px;border:1px solid rgba(255,255,255,0.1)">
@@ -147,6 +151,29 @@ def _filter_jobs(jobs, keyword, location=None, min_salary=None):
                 continue
         matched.append(job)
     return matched
+
+
+def _enrich_with_profile(jobs, profile):
+    if not profile or not profile.get("skills"):
+        return jobs
+    user_skills = set(s.lower() for s in profile.get("skills", []))
+    if not user_skills:
+        return jobs
+
+    enriched = []
+    for job in jobs:
+        job_copy = dict(job)
+        job_skills = set(s.lower() for s in (job_copy.get("skills") or []))
+        if job_skills:
+            matched = list(user_skills.intersection(job_skills))
+            missing = list(job_skills - user_skills)
+            if matched:
+                job_copy["_matched"] = matched
+            if missing:
+                job_copy["_missing"] = missing
+        enriched.append(job_copy)
+    return enriched
+
 
 
 def match_and_send_alerts(new_jobs):
