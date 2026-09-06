@@ -113,10 +113,21 @@ def get_embeddings_batch(texts):
 
 
 def save_resume(user_id, text, embedding):
-    supabase.table("user_resumes").upsert(
-        {"user_id": user_id, "resume_text": text, "embedding": embedding},
-        on_conflict="user_id",
-    ).execute()
+    try:
+        supabase.table("user_resumes").upsert(
+            {"user_id": user_id, "resume_text": text, "embedding": embedding},
+            on_conflict="user_id",
+        ).execute()
+    except Exception as e:
+        print(f"Notice saving resume with embedding: {e}. Falling back to text-only save...")
+        try:
+            supabase.table("user_resumes").upsert(
+                {"user_id": user_id, "resume_text": text},
+                on_conflict="user_id",
+            ).execute()
+            print(f"Successfully saved resume text for user {user_id}")
+        except Exception as ex:
+            print(f"Critical error saving resume text: {ex}")
 
 
 def save_resume_chunks(user_id, chunks, embeddings_list):

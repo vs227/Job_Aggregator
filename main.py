@@ -499,9 +499,10 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
 @app.get("/resume/analysis")
 def get_user_resume_analysis(user_id: int = Depends(get_current_user)):
     resume = get_resume(user_id)
+    ai_profile = get_ai_profile(user_id)
     rem_tokens = token_limiter.get_remaining_tokens(user_id)
 
-    if not resume:
+    if not resume and not ai_profile:
         return {
             "has_resume": False,
             "remaining_tokens": rem_tokens,
@@ -509,7 +510,6 @@ def get_user_resume_analysis(user_id: int = Depends(get_current_user)):
             "window_minutes": WINDOW_MINUTES
         }
 
-    ai_profile = get_ai_profile(user_id)
     rec = None
     if ai_profile:
         rec = ai_profile.get("recommendation")
@@ -520,10 +520,11 @@ def get_user_resume_analysis(user_id: int = Depends(get_current_user)):
             elif isinstance(ms, str):
                 rec = ms
 
-    if not rec or "Consider highlighting core project metrics" in rec or "Your resume has been processed" in rec:
+    resume_text = resume["resume_text"] if resume else ""
+    if (not rec or "Consider highlighting core project metrics" in rec or "Your resume has been processed" in rec) and resume_text:
         try:
-            matched = match_jobs(get_embedding(resume["resume_text"]), limit=5)
-            analysis = analyze_resume_data(resume["resume_text"], matched)
+            matched = match_jobs(get_embedding(resume_text), limit=5)
+            analysis = analyze_resume_data(resume_text, matched)
             rec = analysis.get("recommendation")
             if ai_profile and rec:
                 ai_profile["recommendation"] = rec
@@ -531,7 +532,7 @@ def get_user_resume_analysis(user_id: int = Depends(get_current_user)):
         except Exception as e:
             rec = "Highlight cloud infrastructure (AWS/Docker) and system performance metrics in your projects to optimize your profile for target developer roles."
 
-    skills = (ai_profile.get("top_skills") if ai_profile else None) or extract_skills_local(resume["resume_text"])
+    skills = (ai_profile.get("top_skills") if ai_profile else None) or (extract_skills_local(resume_text) if resume_text else [])
     score = (ai_profile.get("job_fit_score") if ai_profile else None) or 85
 
     return {
@@ -539,7 +540,7 @@ def get_user_resume_analysis(user_id: int = Depends(get_current_user)):
         "analysis": {
             "match_score": score,
             "extracted_skills": skills,
-            "recommendation": rec
+            "recommendation": rec or "Your resume has been processed. You can now chat with HirePulse Pivot AI for personalized guidance."
         },
         "profile": ai_profile or {"top_skills": skills, "job_fit_score": score},
         "remaining_tokens": rem_tokens,
