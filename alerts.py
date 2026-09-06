@@ -28,6 +28,69 @@ def _get_smtp_credentials():
     return email, password
 
 
+def _send_brevo_api_email(to_email: str, subject: str, html_body: str, sender_name: str = "HirePulse AI") -> bool:
+    api_key = (os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY") or "").strip()
+    if not api_key:
+        return False
+    smtp_email, _ = _get_smtp_credentials()
+    sender_email = smtp_email or os.getenv("SENDER_EMAIL", "parasff0007@gmail.com")
+    try:
+        payload = json.dumps({
+            "sender": {"name": sender_name, "email": sender_email},
+            "to": [{"email": to_email}],
+            "subject": subject,
+            "htmlContent": html_body
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.brevo.com/v3/smtp/email",
+            data=payload,
+            headers={
+                "api-key": api_key,
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=12) as response:
+            if response.status in (200, 201):
+                print(f"[Brevo HTTP API Success] Email sent to {to_email}")
+                return True
+    except Exception as e:
+        print(f"[Brevo HTTP API Error] Failed to send email via Brevo API: {e}")
+    return False
+
+
+def _send_sendgrid_api_email(to_email: str, subject: str, html_body: str, sender_name: str = "HirePulse AI") -> bool:
+    api_key = os.getenv("SENDGRID_API_KEY", "").strip()
+    if not api_key:
+        return False
+    smtp_email, _ = _get_smtp_credentials()
+    sender_email = smtp_email or os.getenv("SENDER_EMAIL", "parasff0007@gmail.com")
+    try:
+        payload = json.dumps({
+            "personalizations": [{"to": [{"email": to_email}]}],
+            "from": {"email": sender_email, "name": sender_name},
+            "subject": subject,
+            "content": [{"type": "text/html", "value": html_body}]
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.sendgrid.com/v3/mail/send",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=12) as response:
+            if response.status in (200, 201, 202):
+                print(f"[SendGrid HTTP API Success] Email sent to {to_email}")
+                return True
+    except Exception as e:
+        print(f"[SendGrid HTTP API Error] Failed to send email via SendGrid API: {e}")
+    return False
+
+
 def _send_resend_api_email(to_email: str, subject: str, html_body: str, sender_name: str = "HirePulse AI") -> bool:
     api_key = os.getenv("RESEND_API_KEY", "").strip()
     if not api_key:
@@ -60,7 +123,17 @@ def _send_resend_api_email(to_email: str, subject: str, html_body: str, sender_n
 
 
 def _send_smtp_email(to_email: str, subject: str, text_body: str, html_body: str, sender_name: str = "HirePulse AI") -> bool:
-    # 1. Try Resend HTTP API first if RESEND_API_KEY is present (bypasses Render outbound port blocks)
+    # 1. Try Brevo HTTP API (300 emails/day FREE, no custom domain needed!)
+    if os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY"):
+        if _send_brevo_api_email(to_email, subject, html_body, sender_name):
+            return True
+
+    # 2. Try SendGrid HTTP API (100 emails/day FREE)
+    if os.getenv("SENDGRID_API_KEY"):
+        if _send_sendgrid_api_email(to_email, subject, html_body, sender_name):
+            return True
+
+    # 3. Try Resend HTTP API
     if os.getenv("RESEND_API_KEY"):
         if _send_resend_api_email(to_email, subject, html_body, sender_name):
             return True
@@ -104,18 +177,38 @@ def _send_smtp_email(to_email: str, subject: str, text_body: str, html_body: str
 
 def test_smtp_diagnostic(to_email: str) -> dict:
     smtp_email, smtp_password = _get_smtp_credentials()
+    brevo_key = (os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY") or "").strip()
+    sendgrid_key = os.getenv("SENDGRID_API_KEY", "").strip()
     resend_key = os.getenv("RESEND_API_KEY", "").strip()
 
     results = {
         "to_email": to_email,
+        "brevo_api_key_set": bool(brevo_key),
+        "sendgrid_api_key_set": bool(sendgrid_key),
         "resend_api_key_set": bool(resend_key),
         "smtp_email_found": smtp_email,
         "smtp_password_length": len(smtp_password) if smtp_password else 0,
+        "brevo_api": None,
+        "sendgrid_api": None,
         "resend_api": None,
         "ssl_465": None,
         "tls_587": None,
         "success": False
     }
+
+    if brevo_key:
+        brevo_ok = _send_brevo_api_email(to_email, "HirePulse Diagnostic Test", "<p>Test email via Brevo HTTPS API from Render</p>")
+        results["brevo_api"] = "SUCCESS" if brevo_ok else "FAILED"
+        if brevo_ok:
+            results["success"] = True
+            return results
+
+    if sendgrid_key:
+        sg_ok = _send_sendgrid_api_email(to_email, "HirePulse Diagnostic Test", "<p>Test email via SendGrid HTTPS API from Render</p>")
+        results["sendgrid_api"] = "SUCCESS" if sg_ok else "FAILED"
+        if sg_ok:
+            results["success"] = True
+            return results
 
     if resend_key:
         resend_ok = _send_resend_api_email(to_email, "HirePulse Diagnostic Test", "<p>Test email via Resend API from Render</p>")
@@ -155,6 +248,7 @@ def test_smtp_diagnostic(to_email: str) -> dict:
         results["tls_587"] = f"FAILED: {type(e).__name__}: {str(e)}"
 
     return results
+
 
 
 
