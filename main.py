@@ -439,11 +439,8 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
         if item.get("id") in matched_jobs_dict:
             structured.append(_job_to_dict(matched_jobs_dict[item["id"]], item.get("match_reason", "A suitable match.")))
 
-    if ai_result.get("fallback") and not structured:
-        structured = [_job_to_dict(j, "Matches key skills in your profile.") for j in matched_jobs_dict.values()]
-
     return {
-        "response": ai_result.get("text", "Here are the jobs that match your profile:"),
+        "response": ai_result.get("text", "Here are the recommendations for your profile:"),
         "matches": structured,
         "remaining_daily": get_remaining_daily_chat_limit(user_id),
         "daily_limit": DAILY_CHAT_LIMIT

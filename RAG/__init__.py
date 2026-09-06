@@ -335,14 +335,21 @@ def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_
 
 
 def _fallback(query, jobs, total_jobs, saved_count, user_skills=None):
-    words = set(query.lower().strip().split())
+    q_lower = query.lower().strip()
+    words = set(q_lower.split())
     greetings = {"hi", "hello", "hey", "hii", "yo"}
     if any(g in words for g in greetings) and len(words) <= 2:
-        return {"text": "Hello! I'm HirePulse Pivot AI. How can I help with your job search?", "jobs": []}
-    if not jobs:
-        return {
-            "text": "Currently, there are no suitable job postings matching your profile in our database. Please set an email alert for your preferred roles in the **Job Alerts** section so you get notified instantly when new matching positions are added!",
-            "jobs": []
-        }
-    skills_text = f" ({', '.join(user_skills[:3])})" if user_skills else ""
-    return {"text": f"Here are the top jobs directly matching your skills{skills_text}:", "jobs": [{"id": j.get("id"), "match_reason": f"Matches your skills in {j.get('title', 'software')}"} for j in jobs], "fallback": True}
+        return {"text": "Hello! I'm HirePulse Pivot AI. How can I assist you with your career goals or job search?", "jobs": []}
+
+    job_keywords = ["suggest jobs", "find jobs", "show jobs", "match jobs", "job openings", "jobs for me", "suggest me jobs", "recommend jobs", "jobs should i apply", "matching jobs"]
+    is_job_request = any(k in q_lower for k in job_keywords)
+
+    if is_job_request and jobs:
+        skills_text = f" ({', '.join(user_skills[:3])})" if user_skills else ""
+        return {"text": f"Here are the top jobs directly matching your skills{skills_text}:", "jobs": [{"id": j.get("id"), "match_reason": f"Matches your skills in {j.get('title', 'software')}"} for j in jobs], "fallback": True}
+
+    skills_str = ", ".join(user_skills[:4]) if user_skills else "software development"
+    return {
+        "text": f"Based on your profile skills in **{skills_str}**, here are key recommendations to optimize your resume:\n\n1. **Quantify Project Metrics**: Highlight measurable outcomes, performance improvements, and key API/feature deliverables.\n\n2. **Structure Skills Clearly**: Ensure core technical competencies are categorized prominently by language, framework, and cloud tools.\n\n3. **Tailor for Target Roles**: Align your professional summary and project bullets directly with target developer job descriptions.",
+        "jobs": []
+    }
