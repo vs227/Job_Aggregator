@@ -1,6 +1,10 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
 import smtplib
 from email.mime.multipart import MIMEMultipart
+
 from email.mime.text import MIMEText
 from database import supabase
 from RAG import get_ai_profile

@@ -1,6 +1,10 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from contextlib import asynccontextmanager
 import random
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, UploadFile, File
+
 from fastapi.middleware.cors import CORSMiddleware
 from database import supabase
 from cache import (
