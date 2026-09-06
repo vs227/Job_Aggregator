@@ -1,11 +1,21 @@
 .saved-jobs-page {
-  padding-top: 120px;
+  padding-top: 140px;
   padding-bottom: 80px;
+}
+
+@media (max-width: 768px) {
+  .saved-jobs-page {
+    padding-top: 130px;
+  }
 }
 
 .saved-jobs-title {
   font-family: var(--font-heading);
-  font-size: 2rem;
-  font-weight: 700;
-  margin-bottom: 32px;
+  font-size: 1.45rem;
+  font-weight: 750;
+  margin-bottom: 24px;
+  background: linear-gradient(135deg, var(--text-primary) 40%, var(--accent-blue) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }

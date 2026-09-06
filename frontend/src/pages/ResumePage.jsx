@@ -8,7 +8,9 @@ import {
   MdBookmark,
   MdBookmarkBorder,
   MdDeleteSweep,
-  MdAutoAwesome
+  MdAutoAwesome,
+  MdChat,
+  MdDescription
 } from 'react-icons/md';
 import { IoIosPaperPlane } from 'react-icons/io';
 import './ResumePage.css';
@@ -48,6 +50,7 @@ function ResumePage() {
   const [analysisData, setAnalysisData] = useState(null);
   const [savedJobIds, setSavedJobIds] = useState(new Set());
   const [remainingTokens, setRemainingTokens] = useState(5000);
+  const [mobileTab, setMobileTab] = useState('chat'); // 'upload' or 'chat'
 
   useEffect(() => {
     try {
@@ -62,7 +65,7 @@ function ResumePage() {
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isTyping]);
+  }, [messages, isTyping, mobileTab]);
 
   useEffect(() => {
     async function loadInitialData() {
@@ -101,96 +104,71 @@ function ResumePage() {
           next.delete(jobId);
           return next;
         });
-        toast.success('Job removed from bookmarks!');
+        toast.success('Job removed from saved list');
       } else {
         await saveJob(jobId);
-        setSavedJobIds(prev => {
-          const next = new Set(prev);
-          next.add(jobId);
-          return next;
-        });
-        toast.success('Job bookmarked successfully!');
+        setSavedJobIds(prev => new Set(prev).add(jobId));
+        toast.success('Job saved!');
       }
     } catch (err) {
-      toast.error(err.message || 'Failed to update bookmark');
+      toast.error(err.message || 'Action failed');
     }
   }
 
-  // Beacon High-Speed Live Typewriter Animation
-  const typeTextFast = async (fullText, messageId, jobs = []) => {
-    if (!fullText) return;
-    let idx = 0;
-    const totalLen = fullText.length;
-    const chunkSize = Math.max(3, Math.ceil(totalLen / 45));
+  // Fast Typewriter animation for incoming AI response
+  function typeTextFast(fullText, msgId, jobs = []) {
+    return new Promise((resolve) => {
+      let index = 0;
+      const length = fullText.length;
+      
+      const interval = setInterval(() => {
+        index += Math.ceil(length / 25);
+        if (index >= length) {
+          index = length;
+          clearInterval(interval);
+          setMessages(prev => prev.map(m => {
+            if (m.id === msgId) {
+              return { ...m, text: fullText, typing: false, jobs };
+            }
+            return m;
+          }));
+          resolve();
+        } else {
+          const currentChunk = fullText.slice(0, index);
+          setMessages(prev => prev.map(m => {
+            if (m.id === msgId) {
+              return { ...m, text: currentChunk, typing: true, jobs: [] };
+            }
+            return m;
+          }));
+        }
+      }, 20);
+    });
+  }
 
-    while (idx < totalLen) {
-      idx = Math.min(totalLen, idx + chunkSize);
-      const currentText = fullText.slice(0, idx);
-
-      setMessages(prev =>
-        prev.map(m =>
-          m.id === messageId
-            ? { ...m, text: currentText, typing: idx < totalLen, jobs: idx >= totalLen ? jobs : [] }
-            : m
-        )
-      );
-      await new Promise(res => setTimeout(res, 14));
-    }
-
-    setMessages(prev =>
-      prev.map(m =>
-        m.id === messageId ? { ...m, text: fullText, typing: false, jobs } : m
-      )
-    );
-  };
-
-  // Formatter for AI output: renders bold headers, paragraphs, and styled bullet/numbered lists
   function renderFormattedMessage(text) {
     if (!text) return null;
-
-    // Pre-process text to separate squished numbers/bullets onto newlines (e.g. "recommendations:1. **Title**" -> "recommendations:\n\n1. **Title**")
-    const preparedText = text
-      .replace(/([.:;!a-zA-Z0-9])\s*(\d+\.\s+\*\*)/g, '$1\n\n$2')
-      .replace(/([.:;!a-zA-Z0-9])\s*([*\-•]\s+\*\*)/g, '$1\n\n$2');
-
-    const lines = preparedText.split('\n');
-    return lines.map((line, idx) => {
-      const cleanLine = line.trim();
-      if (!cleanLine) return <div key={idx} style={{ height: '8px' }} />;
-
-      const bulletMatch = cleanLine.match(/^([*\-•]|\d+\.)\s+(.*)/);
-      const isBullet = Boolean(bulletMatch);
-      const bulletSymbol = isBullet ? bulletMatch[1] : '';
-      const lineContent = isBullet ? bulletMatch[2] : cleanLine;
-
-      const parts = lineContent.split(/(\*\*.*?\*\*)/g);
-      const formattedContent = parts.map((part, pIdx) => {
+    const lines = text.split('\n');
+    return lines.map((line, lineIdx) => {
+      const parts = line.split(/(\*\*.*?\*\*)/g);
+      const formattedLine = parts.map((part, partIdx) => {
         if (part.startsWith('**') && part.endsWith('**')) {
-          return (
-            <strong key={pIdx} style={{ color: 'var(--text-primary)', fontWeight: 700 }}>
-              {part.slice(2, -2)}
-            </strong>
-          );
+          return <strong key={partIdx}>{part.slice(2, -2)}</strong>;
         }
         return part;
       });
 
-      if (isBullet) {
-        const isNumber = /^\d+\./.test(bulletSymbol);
+      if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
         return (
-          <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', margin: '8px 0 8px 4px', lineHeight: '1.65' }}>
-            <span style={{ color: 'var(--accent-blue)', fontWeight: isNumber ? 700 : 900, fontSize: isNumber ? '0.85rem' : '1.1rem', minWidth: '20px', flexShrink: 0, marginTop: '1px' }}>
-              {isNumber ? bulletSymbol : '•'}
-            </span>
-            <span style={{ flex: 1, color: 'var(--text-primary)', fontSize: '0.9rem', lineHeight: '1.65' }}>{formattedContent}</span>
-          </div>
+          <li key={lineIdx} style={{ marginLeft: '16px', marginBottom: '4px' }}>
+            {formattedLine.slice(1)}
+          </li>
         );
       }
-
       return (
-        <div key={idx} style={{ margin: '8px 0', lineHeight: '1.65', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
-          {formattedContent}
-        </div>
+        <p key={lineIdx} style={{ marginBottom: lineIdx === lines.length - 1 ? 0 : '8px' }}>
+          {formattedLine}
+        </p>
       );
     });
   }
@@ -211,7 +189,6 @@ function ResumePage() {
     setInputVal('');
     setIsTyping(true);
 
-    // Extract last 3 messages for conversational context
     const recentHistory = messages
       .filter((m) => !m.typing && m.text)
       .slice(-3)
@@ -225,7 +202,6 @@ function ResumePage() {
         setRemainingTokens(data.remaining_tokens);
       }
 
-      // Add typing placeholder message
       setMessages(prev => [
         ...prev,
         {
@@ -237,7 +213,6 @@ function ResumePage() {
         }
       ]);
 
-      // Trigger high-speed typewriter output animation
       await typeTextFast(fullText, aiMsgId, jobs);
     } catch (err) {
       toast.error(err.message || 'Rate limit reached. Please try again later.');
@@ -265,6 +240,8 @@ function ResumePage() {
         setAnalyzing(false);
         setShowAnalysis(true);
         toast.success('Resume analyzed successfully!');
+        // Switch to AI chat tab on mobile after successful analysis
+        setMobileTab('chat');
       } catch (err) {
         setAnalyzing(false);
         toast.error(err.message || 'Failed to process resume');
@@ -273,9 +250,27 @@ function ResumePage() {
   }
 
   return (
-    <div className="resume-page-layout fade-in">
+    <div className="resume-page-wrapper fade-in">
+      {/* MOBILE SEGMENTED TAB BAR (< 768px) */}
+      <div className="resume-mobile-tab-bar">
+        <button 
+          className={`resume-tab-btn ${mobileTab === 'upload' ? 'active' : ''}`}
+          onClick={() => setMobileTab('upload')}
+        >
+          <MdDescription /> Resume Upload
+        </button>
+        <button 
+          className={`resume-tab-btn ${mobileTab === 'chat' ? 'active' : ''}`}
+          onClick={() => setMobileTab('chat')}
+        >
+          <MdChat /> AI Assistant
+        </button>
+      </div>
 
-        <div className="resume-upload-section">
+      <div className="resume-page-layout">
+
+        {/* LEFT COLUMN: RESUME UPLOADER & ANALYSIS */}
+        <div className={`resume-upload-section ${mobileTab === 'upload' ? 'show-mobile' : 'hide-mobile'}`}>
           {initialLoading && (
             <div className="resume-loader-container">
               <MdAutorenew className="resume-loader-icon" />
@@ -311,13 +306,12 @@ function ResumePage() {
 
           {!initialLoading && showAnalysis && !analyzing && (
             <div className="analysis-results-card">
-              <div className="analysis-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="analysis-header">
                 <div className="analysis-header-info">
                   <h3>Analysis Complete</h3>
                 </div>
                 <button 
                   className="reupload-btn" 
-                  style={{ marginTop: 0 }}
                   onClick={() => { 
                     setFile(null); 
                     setShowAnalysis(false); 
@@ -327,7 +321,6 @@ function ResumePage() {
                   <MdCloudUpload /> Upload New
                 </button>
               </div>
-
 
               <div className="analysis-skills-section">
                 <span className="skills-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -352,24 +345,28 @@ function ResumePage() {
                   )}
                 </div>
               </div>
+
+              <button 
+                className="mobile-switch-to-chat-btn"
+                onClick={() => setMobileTab('chat')}
+              >
+                <MdChat /> Open AI Chat Assistant
+              </button>
             </div>
           )}
-
         </div>
 
-        <div className="animated-divider"></div>
-
-        <div className="resume-chat-section">
-          <div className="chat-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {/* RIGHT COLUMN: AI CHAT ASSISTANT */}
+        <div className={`resume-chat-section ${mobileTab === 'chat' ? 'show-mobile' : 'hide-mobile'}`}>
+          <div className="chat-header">
+            <div className="chat-header-info">
               <span className="chat-header-title">HirePulse Pivot AI</span>
               <span className="chat-limit-badge" title="Strict Rate Limit: 5,000 Tokens per 30 Minute Window">
                 {remainingTokens.toLocaleString()} / 5,000 Tokens (30m Window)
               </span>
             </div>
             <button 
-              className="btn-ghost" 
-              style={{ padding: '6px 12px', fontSize: '0.8rem', gap: '6px', borderRadius: '8px' }}
+              className="btn-ghost clear-chat-btn" 
               onClick={() => {
                 localStorage.removeItem(CHAT_STORAGE_KEY);
                 setMessages([{
@@ -379,7 +376,7 @@ function ResumePage() {
                 }]);
               }}
             >
-              <MdDeleteSweep style={{ fontSize: '1rem' }} /> Clear Chat
+              <MdDeleteSweep style={{ fontSize: '1rem' }} /> Clear
             </button>
           </div>
 
@@ -436,13 +433,16 @@ function ResumePage() {
           </div>
 
           <form className="chat-input-container" onSubmit={handleSendMessage}>
-            <input
-              type="text"
-              className="chat-input"
-              value={inputVal}
-              onChange={(e) => setInputVal(e.target.value)}
-              placeholder="Ask AI for job recommendations..."
-            />
+            <div className="chat-input-wrapper">
+              <MdAutoAwesome className="chat-input-ai-icon ai-sparkle-icon" />
+              <input
+                type="text"
+                className="chat-input"
+                value={inputVal}
+                onChange={(e) => setInputVal(e.target.value)}
+                placeholder="Ask AI for job recommendations..."
+              />
+            </div>
             <button type="submit" className="chat-send-btn" disabled={isTyping}>
               <IoIosPaperPlane className="plane-icon" />
             </button>
@@ -450,6 +450,7 @@ function ResumePage() {
         </div>
 
       </div>
+    </div>
   );
 }
 

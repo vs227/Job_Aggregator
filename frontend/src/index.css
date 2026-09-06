@@ -52,17 +52,17 @@
 }
 
 [data-theme='light'] {
-  --bg-primary: #f1f5f9;
+  --bg-primary: #ffffff;
   --bg-secondary: #ffffff;
   --bg-card: #ffffff;
-  --bg-glass: rgba(0, 0, 0, 0.02);
-  --bg-glass-hover: rgba(0, 0, 0, 0.04);
+  --bg-glass: rgba(0, 0, 0, 0.03);
+  --bg-glass-hover: rgba(0, 0, 0, 0.06);
   --border-glass: rgba(0, 0, 0, 0.08);
   --border-glass-hover: rgba(0, 0, 0, 0.15);
 
-  --text-primary: #0f172a;
-  --text-secondary: #334155;
-  --text-muted: #64748b;
+  --text-primary: #09090b;
+  --text-secondary: #3f3f46;
+  --text-muted: #71717a;
 
   --accent-blue: #2563eb;
   --accent-blue-hover: #1d4ed8;
@@ -72,21 +72,21 @@
   --accent-red: #ef4444;
   --accent-cyan: #06b6d4;
 
-  --gradient-primary: linear-gradient(135deg, #0f172a, #1e293b);
-  --gradient-hero: radial-gradient(circle at top, #f8fafc 0%, #e2e8f0 100%);
-  --gradient-card: linear-gradient(135deg, rgba(15, 23, 42, 0.03), rgba(30, 41, 59, 0.03));
+  --gradient-primary: linear-gradient(135deg, #09090b, #27272a);
+  --gradient-hero: radial-gradient(circle at top, #ffffff 0%, #f4f4f5 100%);
+  --gradient-card: linear-gradient(135deg, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0.04));
 
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.08);
   --shadow-glow: 0 0 20px rgba(37, 99, 235, 0.1);
 
-  --btn-primary-bg: #0f172a;
+  --btn-primary-bg: #09090b;
   --btn-primary-text: #ffffff;
-  --btn-primary-border: #0f172a;
-  --btn-primary-hover-bg: #1e293b;
-  --btn-primary-hover-border: #1e293b;
-  --btn-primary-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+  --btn-primary-border: #09090b;
+  --btn-primary-hover-bg: #27272a;
+  --btn-primary-hover-border: #27272a;
+  --btn-primary-shadow: 0 4px 12px rgba(9, 9, 11, 0.15);
 }
 
 :root {
@@ -140,7 +140,7 @@ body {
 }
 
 [data-theme='light'] .video-background-overlay {
-  background: rgba(248, 250, 252, 0.65);
+  background: rgba(255, 255, 255, 0.88);
 }
 
 body,
@@ -346,6 +346,21 @@ img {
 }
 
 * {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
-}
+  scrollbar-width: none;
+}
+
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 768px) {
+  .container {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  input, select, textarea {
+    font-size: 16px !important; /* Prevents auto-zoom on mobile browsers */
+  }
+}

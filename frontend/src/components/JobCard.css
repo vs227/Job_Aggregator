@@ -107,3 +107,36 @@
 .job-card-save-btn.saved {
   color: var(--accent-amber);
 }
+
+/* Remove right-side divider line on the 4th card (and last card of each row) on Laptop UI */
+.jobs-grid > .job-card:nth-child(4n)::before,
+.job-card:last-child::before {
+  display: none;
+}
+
+@media (min-width: 992px) and (max-width: 1280px) {
+  .jobs-grid > .job-card:nth-child(3n)::before {
+    display: none;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 991px) {
+  .jobs-grid > .job-card:nth-child(2n)::before {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .job-card {
+    padding: 16px 12px 20px;
+  }
+
+  .job-card::before {
+    display: none;
+  }
+
+  .job-card::after {
+    left: 0;
+    right: 0;
+  }
+}

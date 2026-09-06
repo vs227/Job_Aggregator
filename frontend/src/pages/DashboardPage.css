@@ -1,20 +1,39 @@
 .dashboard-page {
-  padding-top: 120px;
+  padding-top: 140px;
   padding-bottom: 80px;
 }
 
 .dashboard-title {
   font-family: var(--font-heading);
-  font-size: 2rem;
-  font-weight: 700;
-  margin-bottom: 32px;
+  font-size: 1.45rem;
+  font-weight: 750;
+  margin-bottom: 24px;
+  background: linear-gradient(135deg, var(--text-primary) 40%, var(--accent-blue) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .jobs-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 36px 0;
   border: none;
+}
+
+@media (max-width: 768px) {
+  .dashboard-page {
+    padding-top: 130px;
+    padding-bottom: 40px;
+  }
+  .dashboard-title {
+    font-size: 1.6rem;
+    margin-bottom: 20px;
+  }
+  .jobs-grid {
+    grid-template-columns: 1fr;
+    gap: 20px 0;
+  }
 }
 
 .empty-state {

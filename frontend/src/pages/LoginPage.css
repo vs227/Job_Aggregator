@@ -276,6 +276,11 @@
 
 /* Mobile Responsive rules */
 @media (max-width: 840px) {
+  .auth-page {
+    padding: 24px 16px;
+    margin-top: 70px;
+    min-height: calc(100vh - 140px);
+  }
   .auth-layout-wrapper {
     flex-direction: column;
     max-width: 440px;
@@ -287,6 +292,10 @@
   .auth-card {
     flex: 1;
     padding: 0;
+    max-width: 100%;
+  }
+  .input-wrapper .input-field {
+    font-size: 16px;
   }
 }
 
