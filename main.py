@@ -52,12 +52,12 @@ class SlidingWindowRateLimiter:
 minute_limiter = SlidingWindowRateLimiter(requests_per_minute=10)
 
 MAX_TOKENS_PER_WINDOW = 5000
-WINDOW_MINUTES = 60
+WINDOW_MINUTES = 30
 WINDOW_SECONDS = WINDOW_MINUTES * 60
 
 class SlidingWindowTokenLimiter:
     """In-memory fallback token limiter (used only when Redis is unavailable)."""
-    def __init__(self, max_tokens: int = 5000, window_seconds: int = 3600):
+    def __init__(self, max_tokens: int = 5000, window_seconds: int = 1800):
         self.max_tokens = max_tokens
         self.window_seconds = window_seconds
         self.history = defaultdict(list)
@@ -544,9 +544,22 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
     # Estimate token cost (~450 tokens per AI query execution) and check rate limit
     rem_tokens = _consume_tokens(user_id, tokens=450)
 
+    # Format context of last 3 conversation messages
+    history_str = ""
+    if chat_input.history:
+        recent_3 = chat_input.history[-3:]
+        history_lines = []
+        for item in recent_3:
+            role = "User" if item.sender.lower() == "user" else "Assistant"
+            history_lines.append(f"{role}: {item.text}")
+        if history_lines:
+            history_str = "RECENT CHAT HISTORY:\n" + "\n".join(history_lines)
+
     skills_str = ", ".join(user_skills[:4])
     roles_str = ", ".join(ai_profile.get("preferred_roles") or []) if ai_profile else ""
     context = f"Candidate Skills: {skills_str}. Roles: {roles_str}. Query: {chat_input.message}"
+    if history_str:
+        context = f"{history_str}\n{context}"
 
     matched_jobs = []
     try:
@@ -558,6 +571,7 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
     ai_result = generate_answer(
         resume=resume_text, jobs=matched_jobs, query=chat_input.message,
         total_jobs=100, saved_jobs_count=0, user_skills=user_skills,
+        history=history_str
     )
 
     matched_jobs_dict = {j["id"]: j for j in matched_jobs}

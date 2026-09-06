@@ -144,10 +144,10 @@ export async function uploadResume(file) {
   return data;
 }
 
-export function chatWithResume(message) {
+export function chatWithResume(message, history = []) {
   return request('/resume/chat', {
     method: 'POST',
-    body: JSON.stringify({ message })
+    body: JSON.stringify({ message, history })
   });
 }
 

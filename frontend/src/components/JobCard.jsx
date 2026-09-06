@@ -6,7 +6,7 @@ function JobCard({ job, isSaved, onSaveToggle }) {
   const { id, title, company, location, salary, job_type } = job;
 
   return (
-    <div className="job-card glass fade-in">
+    <div className="job-card fade-in">
       <div>
         <div className="job-card-header">
           <h3 className="job-card-title">

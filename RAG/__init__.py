@@ -42,7 +42,8 @@ CHAT_PROMPT = ChatPromptTemplate.from_template(
     "You are HirePulse Pivot AI, an expert career recruiter.\n\n"
     "CANDIDATE CONTEXT:\n{resume}\n"
     "SKILLS: {user_skills}\n"
-    "MATCHED JOBS: {jobs_json}\n\n"
+    "MATCHED JOBS: {jobs_json}\n"
+    "{history}\n\n"
     "USER QUERY: {query}\n\n"
     "RULES:\n"
     "1. ABSOLUTE TRUTH: Mention ONLY skills present in CANDIDATE CONTEXT/SKILLS.\n"
@@ -334,7 +335,7 @@ def _rank_and_filter_jobs(jobs, user_skills):
     return filtered[:5] if filtered else [j for score, j in scored[:3]]
 
 
-def _call_mistral_llm(resume_slice, user_skills, jobs_json, query):
+def _call_mistral_llm(resume_slice, user_skills, jobs_json, query, history=""):
     import requests
     mistral_key = os.environ.get("MISTRAL_API_KEY")
     if not mistral_key:
@@ -345,11 +346,13 @@ def _call_mistral_llm(resume_slice, user_skills, jobs_json, query):
         "Authorization": f"Bearer {mistral_key}",
         "Content-Type": "application/json"
     }
+    history_part = f"\n{history}\n" if history else ""
     prompt_text = (
         f"You are HirePulse Pivot AI, an expert career recruiter.\n\n"
         f"CANDIDATE CONTEXT:\n{resume_slice}\n"
         f"SKILLS: {user_skills}\n"
-        f"MATCHED JOBS: {jobs_json}\n\n"
+        f"MATCHED JOBS: {jobs_json}\n"
+        f"{history_part}\n"
         f"USER QUERY: {query}\n\n"
         f"RULES:\n"
         f"1. ABSOLUTE TRUTH: Mention ONLY skills present in CANDIDATE CONTEXT/SKILLS.\n"
@@ -391,7 +394,7 @@ def _call_mistral_llm(resume_slice, user_skills, jobs_json, query):
     return None
 
 
-def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_skills=None):
+def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_skills=None, history=""):
     if user_skills is None:
         user_skills = extract_skills_local(resume)
 
@@ -414,6 +417,7 @@ def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_
         "resume": resume_slice,
         "user_skills": skills_str,
         "jobs_json": jobs_json,
+        "history": history if history else "",
         "query": query
     }, ChatResponse, temperature=0.2, max_tokens=400)
 
@@ -421,7 +425,7 @@ def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_
         return res_dict
 
     print("Gemini API rate limit or error across all models. Instant failover to Mistral AI...")
-    mistral_res = _call_mistral_llm(resume_slice, skills_str, jobs_json, query)
+    mistral_res = _call_mistral_llm(resume_slice, skills_str, jobs_json, query, history=history)
     if mistral_res:
         return mistral_res
 

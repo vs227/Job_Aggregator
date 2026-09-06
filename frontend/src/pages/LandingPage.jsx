@@ -46,7 +46,7 @@ function LandingPage() {
         </div>
 
         <div className="workflow-steps-layout">
-          <div className="workflow-step-card glass">
+          <div className="workflow-step-item">
             <div className="step-icon-box">
               <MdOutlineDns />
             </div>
@@ -54,7 +54,7 @@ function LandingPage() {
             <p className="step-text">Our backend executes cron-job scrapers targeting Internshala, TimesJobs, Himalayas, and Remotive every few hours.</p>
           </div>
 
-          <div className="workflow-step-card glass">
+          <div className="workflow-step-item">
             <div className="step-icon-box">
               <MdOutlineHub />
             </div>
@@ -62,7 +62,7 @@ function LandingPage() {
             <p className="step-text">Smart hash algorithms analyze titles, descriptions, and locations to filter duplicate entries across platforms.</p>
           </div>
 
-          <div className="workflow-step-card glass">
+          <div className="workflow-step-item">
             <div className="step-icon-box">
               <MdOutlineSecurity />
             </div>

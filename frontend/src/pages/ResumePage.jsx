@@ -14,14 +14,29 @@ import { IoIosPaperPlane } from 'react-icons/io';
 import './ResumePage.css';
 import { uploadResume, chatWithResume, saveJob, unsaveJob, fetchSavedJobs, fetchResumeAnalysis } from '../services/api';
 
+const CHAT_STORAGE_KEY = 'hirepulse_chat_history_v1';
+
 function ResumePage() {
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      sender: 'ai',
-      text: 'Hello! I am HirePulse Pivot AI. Upload your resume on the right, and I will recommend matching jobs and help you optimize your profile.'
+  const [messages, setMessages] = useState(() => {
+    try {
+      const saved = localStorage.getItem(CHAT_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load chat history from localStorage", e);
     }
-  ]);
+    return [
+      {
+        id: 1,
+        sender: 'ai',
+        text: 'Hello! I am HirePulse Pivot AI. Upload your resume on the left, and I will recommend matching jobs and help you optimize your profile.'
+      }
+    ];
+  });
   const [inputVal, setInputVal] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const chatEndRef = useRef(null);
@@ -33,6 +48,17 @@ function ResumePage() {
   const [analysisData, setAnalysisData] = useState(null);
   const [savedJobIds, setSavedJobIds] = useState(new Set());
   const [remainingTokens, setRemainingTokens] = useState(5000);
+
+  useEffect(() => {
+    try {
+      const cleanMessages = messages.filter((m) => !m.typing);
+      if (cleanMessages.length > 0) {
+        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(cleanMessages));
+      }
+    } catch (e) {
+      console.error("Failed to save chat history to localStorage", e);
+    }
+  }, [messages]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -185,8 +211,14 @@ function ResumePage() {
     setInputVal('');
     setIsTyping(true);
 
+    // Extract last 3 messages for conversational context
+    const recentHistory = messages
+      .filter((m) => !m.typing && m.text)
+      .slice(-3)
+      .map((m) => ({ sender: m.sender, text: m.text }));
+
     try {
-      const data = await chatWithResume(userMsgVal);
+      const data = await chatWithResume(userMsgVal, recentHistory);
       const fullText = data.response || 'No response.';
       const jobs = data.matches || [];
       if (typeof data.remaining_tokens === 'number') {
@@ -331,18 +363,21 @@ function ResumePage() {
           <div className="chat-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <span className="chat-header-title">HirePulse Pivot AI</span>
-              <span className="chat-limit-badge" title="Strict Rate Limit: 5,000 Tokens per 1 Hour Window">
-                {remainingTokens.toLocaleString()} / 5,000 Tokens (1h Window)
+              <span className="chat-limit-badge" title="Strict Rate Limit: 5,000 Tokens per 30 Minute Window">
+                {remainingTokens.toLocaleString()} / 5,000 Tokens (30m Window)
               </span>
             </div>
             <button 
               className="btn-ghost" 
               style={{ padding: '6px 12px', fontSize: '0.8rem', gap: '6px', borderRadius: '8px' }}
-              onClick={() => setMessages([{
-                id: Date.now(),
-                sender: 'ai',
-                text: 'Hello! I am HirePulse Pivot AI. Upload your resume on the left, and I will recommend matching jobs and help you optimize your profile.'
-              }])}
+              onClick={() => {
+                localStorage.removeItem(CHAT_STORAGE_KEY);
+                setMessages([{
+                  id: Date.now(),
+                  sender: 'ai',
+                  text: 'Hello! I am HirePulse Pivot AI. Upload your resume on the left, and I will recommend matching jobs and help you optimize your profile.'
+                }]);
+              }}
             >
               <MdDeleteSweep style={{ fontSize: '1rem' }} /> Clear Chat
             </button>

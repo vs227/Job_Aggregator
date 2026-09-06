@@ -1,5 +1,5 @@
 .alerts-page {
-  padding-top: 120px;
+  padding-top: 160px;
   padding-bottom: 80px;
 }
 
@@ -15,15 +15,29 @@
 .alerts-layout {
   display: grid;
   grid-template-columns: 360px 1fr;
-  gap: 32px;
+  gap: 48px;
   align-items: start;
+  position: relative;
 }
 
 .alert-form-card {
-  padding: 36px 32px;
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-md);
+  padding: 0 48px 0 0;
+  border-radius: 0;
+  box-shadow: none;
   border: none;
+  background: transparent;
+  position: relative;
+}
+
+.alert-form-card::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 5%;
+  bottom: 5%;
+  width: 1px;
+  background: var(--border-glass-hover);
+  pointer-events: none;
 }
 
 .input-accent-line {
@@ -167,15 +181,31 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 24px;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  padding: 16px 0;
+  position: relative;
+  background: transparent;
+  box-shadow: none;
   border: none;
-  transition: transform var(--transition);
+  transition: opacity var(--transition);
+}
+
+.alert-item-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 5%;
+  right: 5%;
+  height: 1px;
+  background: var(--border-glass-hover);
+  pointer-events: none;
+}
+
+.alert-item-card:last-child::after {
+  display: none;
 }
 
 .alert-item-card:hover {
-  transform: translateY(-2px);
+  opacity: 0.9;
 }
 
 .alert-info {

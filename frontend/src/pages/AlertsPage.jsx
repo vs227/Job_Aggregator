@@ -71,11 +71,8 @@ function AlertsPage() {
 
   return (
     <div className="alerts-page container">
-      <div className="alerts-header-container">
-        <h1 className="alerts-title">Job Alerts</h1>
-      </div>
       <div className="alerts-layout">
-        <div className="alert-form-card glass fade-in">
+        <div className="alert-form-card fade-in">
           <h2 className="alert-form-title">Create Alert</h2>
           <form className="auth-form" onSubmit={handleSubmit}>
             <div className="form-group">
@@ -132,7 +129,7 @@ function AlertsPage() {
           ) : alerts.length > 0 ? (
             <div className="alerts-list">
               {alerts.map((alert) => (
-                <div key={alert.id} className="alert-item-card glass fade-in">
+                <div key={alert.id} className="alert-item-card fade-in">
                   <div className="alert-info-container">
                     <div className="alert-icon-wrapper">
                       <MdNotificationsActive />
@@ -164,7 +161,7 @@ function AlertsPage() {
               ))}
             </div>
           ) : (
-            <div className="empty-state glass fade-in">
+            <div className="empty-state fade-in">
               <MdNotificationsActive style={{ fontSize: '3rem', color: 'var(--text-muted)' }} />
               <h2 className="empty-state-title">No Alerts</h2>
               <p className="empty-state-desc">Create search alert parameters on the left to get notified whenever new job listings fit your preferences.</p>

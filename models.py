@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, List
 
 class RegisterUser(BaseModel):
     username: str
@@ -40,5 +40,10 @@ class SourceInput(BaseModel):
     source_name: str
     source_url: str
 
+class ChatHistoryItem(BaseModel):
+    sender: str
+    text: str
+
 class ResumeChatInput(BaseModel):
     message: str
+    history: Optional[List[ChatHistoryItem]] = None
