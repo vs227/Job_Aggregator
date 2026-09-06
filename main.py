@@ -406,39 +406,43 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
     resume = get_resume(user_id)
     ai_profile = get_ai_profile(user_id)
 
+    q = chat_input.message.lower().strip()
+    if any(w in q for w in ["hi", "hello", "hey", "hii", "yo"]):
+        return {
+            "response": "Hello! I'm HirePulse Pivot AI. How can I assist with your job search or resume optimization today?",
+            "matches": [],
+            "remaining_daily": get_remaining_daily_chat_limit(user_id),
+            "daily_limit": DAILY_CHAT_LIMIT
+        }
+
     if not resume:
-        q = chat_input.message.lower().strip()
-        if any(w in q for w in ["hi", "hello", "hey", "hii", "yo"]):
-            return {
-                "response": "Hello! I'm HirePulse Pivot AI. Upload your resume on the left, and I will recommend matching jobs and help optimize your profile!",
-                "matches": []
-            }
         return {
             "response": "Please upload your resume using the box on the left first. Once uploaded, I can match jobs to your skills and assist with your career!",
-            "matches": []
+            "matches": [],
+            "remaining_daily": get_remaining_daily_chat_limit(user_id),
+            "daily_limit": DAILY_CHAT_LIMIT
         }
 
     user_skills = (ai_profile.get("top_skills") or []) if ai_profile else extract_skills_local(resume["resume_text"])
     skills_str = ", ".join(user_skills)
     roles_str = ", ".join(ai_profile.get("preferred_roles") or []) if ai_profile else ""
-    context = f"Candidate Skills: {skills_str}. Roles: {roles_str}. Query: {chat_input.message}"
+    
+    job_keywords = ["suggest", "recommend", "find job", "show job", "match job", "job suggestion", "job match", "get job", "looking for job", "jobs for me", "roles", "opportunity", "opportunities", "jobs should i apply", "what jobs"]
+    is_job_query = any(k in q for k in job_keywords)
 
-    search_emb = get_embedding(context, task="RETRIEVAL_QUERY")
-
-    matched_jobs = match_jobs(search_emb, limit=10)
-
-    db_count, saved_count = 0, 0
-    try:
-        db_count = supabase.table("jobs").select("id", count="exact").limit(0).execute().count or 0
-        saved_count = supabase.table("saved_jobs").select("id", count="exact").eq("user_id", user_id).limit(0).execute().count or 0
-    except Exception:
-        pass
+    matched_jobs = []
+    if is_job_query:
+        try:
+            context = f"Candidate Skills: {skills_str}. Roles: {roles_str}. Query: {chat_input.message}"
+            search_emb = get_embedding(context, task="RETRIEVAL_QUERY")
+            matched_jobs = match_jobs(search_emb, limit=10)
+        except Exception as e:
+            print(f"Notice matching jobs error: {e}")
 
     ai_result = generate_answer(
         resume=resume["resume_text"], jobs=matched_jobs, query=chat_input.message,
-        total_jobs=db_count, saved_jobs_count=saved_count, user_skills=user_skills,
+        total_jobs=100, saved_jobs_count=0, user_skills=user_skills,
     )
-
 
     matched_jobs_dict = {j["id"]: j for j in matched_jobs}
     _fill_job_urls(matched_jobs_dict)
@@ -454,7 +458,7 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
     return {
         "response": ai_result.get("text", "Here are the jobs that match your profile:"),
         "matches": structured,
-        "remaining_daily": check_and_update_daily_chat_limit(user_id) if False else get_remaining_daily_chat_limit(user_id),
+        "remaining_daily": get_remaining_daily_chat_limit(user_id),
         "daily_limit": DAILY_CHAT_LIMIT
     }
 

@@ -182,7 +182,7 @@ class ChatResponse(BaseModel):
 def extract_ai_profile(resume_text):
     try:
         structured_llm = ChatGoogleGenerativeAI(
-            model="gemini-3.5-flash-lite",
+            model="gemini-1.5-flash",
             temperature=0.1,
             max_retries=1
         ).with_structured_output(AIProfile)
@@ -235,7 +235,7 @@ def analyze_resume_data(resume_text, matched_jobs):
     ]
     try:
         structured_llm = ChatGoogleGenerativeAI(
-            model="gemini-3.5-flash-lite",
+            model="gemini-1.5-flash",
             temperature=0.2,
             max_retries=2
         ).with_structured_output(ResumeAnalysis)
@@ -305,7 +305,7 @@ def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_
 
     try:
         structured_llm = ChatGoogleGenerativeAI(
-            model="gemini-3.5-flash-lite",
+            model="gemini-1.5-flash",
             temperature=0.2,
             max_tokens=400,
             max_retries=2
