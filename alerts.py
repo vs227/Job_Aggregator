@@ -30,10 +30,12 @@ def _send_brevo_api_email(to_email: str, subject: str, html_body: str, text_body
     try:
         payload_dict = {
             "sender": {"name": sender_name, "email": sender_email},
+            "replyTo": {"name": sender_name, "email": sender_email},
             "to": [{"email": to_email}],
             "subject": subject,
             "htmlContent": html_body
         }
+
         if text_body:
             payload_dict["textContent"] = text_body
 
