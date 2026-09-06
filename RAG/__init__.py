@@ -285,12 +285,7 @@ def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_
     if user_skills is None:
         user_skills = extract_skills_local(resume)
 
-    q_lower = query.lower().strip()
-    job_keywords = ["suggest", "recommend", "find job", "show job", "match job", "job suggestion", "job match", "get job", "looking for job", "jobs for me", "roles", "opportunity", "opportunities", "jobs should i apply", "what jobs"]
-    is_job_query = any(k in q_lower for k in job_keywords)
-
-    candidate_jobs = jobs if is_job_query else []
-    filtered_jobs = _rank_and_filter_jobs(candidate_jobs, user_skills) if is_job_query else []
+    filtered_jobs = _rank_and_filter_jobs(jobs, user_skills)
     valid_ids = [j.get("id") for j in filtered_jobs]
 
     jobs_input = [
@@ -321,11 +316,6 @@ def generate_answer(resume, jobs, query, total_jobs=0, saved_jobs_count=0, user_
             "query": query
         })
         res_dict = result.model_dump()
-        if not is_job_query:
-            res_dict["jobs"] = []
-        elif is_job_query and not res_dict.get("jobs"):
-            if "job alert" not in res_dict.get("text", "").lower():
-                res_dict["text"] = "Currently, there are no suitable job postings matching your profile in our database. Please set an email alert for your preferred roles in the **Job Alerts** section so you get notified instantly when new matching positions are added!"
         return res_dict
     except Exception as e:
         print(f"generate_answer error: {e}")

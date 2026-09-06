@@ -95,7 +95,7 @@ function ResumePage() {
     if (!fullText) return;
     let idx = 0;
     const totalLen = fullText.length;
-    const chunkSize = Math.max(16, Math.ceil(totalLen / 15));
+    const chunkSize = Math.max(3, Math.ceil(totalLen / 45));
 
     while (idx < totalLen) {
       idx = Math.min(totalLen, idx + chunkSize);
@@ -108,7 +108,7 @@ function ResumePage() {
             : m
         )
       );
-      await new Promise(res => setTimeout(res, 6));
+      await new Promise(res => setTimeout(res, 14));
     }
 
     setMessages(prev =>

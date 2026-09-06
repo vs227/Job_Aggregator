@@ -406,15 +406,6 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
     resume = get_resume(user_id)
     ai_profile = get_ai_profile(user_id)
 
-    q = chat_input.message.lower().strip()
-    if any(w in q for w in ["hi", "hello", "hey", "hii", "yo"]):
-        return {
-            "response": "Hello! I'm HirePulse Pivot AI. How can I assist with your job search or resume optimization today?",
-            "matches": [],
-            "remaining_daily": get_remaining_daily_chat_limit(user_id),
-            "daily_limit": DAILY_CHAT_LIMIT
-        }
-
     if not resume:
         return {
             "response": "Please upload your resume using the box on the left first. Once uploaded, I can match jobs to your skills and assist with your career!",
@@ -426,18 +417,14 @@ def chat_with_resume(chat_input: ResumeChatInput, user_id: int = Depends(get_cur
     user_skills = (ai_profile.get("top_skills") or []) if ai_profile else extract_skills_local(resume["resume_text"])
     skills_str = ", ".join(user_skills)
     roles_str = ", ".join(ai_profile.get("preferred_roles") or []) if ai_profile else ""
-    
-    job_keywords = ["suggest", "recommend", "find job", "show job", "match job", "job suggestion", "job match", "get job", "looking for job", "jobs for me", "roles", "opportunity", "opportunities", "jobs should i apply", "what jobs"]
-    is_job_query = any(k in q for k in job_keywords)
+    context = f"Candidate Skills: {skills_str}. Roles: {roles_str}. Query: {chat_input.message}"
 
     matched_jobs = []
-    if is_job_query:
-        try:
-            context = f"Candidate Skills: {skills_str}. Roles: {roles_str}. Query: {chat_input.message}"
-            search_emb = get_embedding(context, task="RETRIEVAL_QUERY")
-            matched_jobs = match_jobs(search_emb, limit=10)
-        except Exception as e:
-            print(f"Notice matching jobs error: {e}")
+    try:
+        search_emb = get_embedding(context, task="RETRIEVAL_QUERY")
+        matched_jobs = match_jobs(search_emb, limit=8)
+    except Exception as e:
+        print(f"Notice matching jobs error: {e}")
 
     ai_result = generate_answer(
         resume=resume["resume_text"], jobs=matched_jobs, query=chat_input.message,
