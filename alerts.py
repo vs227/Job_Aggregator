@@ -1,9 +1,12 @@
 import os
-import resend
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from database import supabase
 from RAG import get_ai_profile
 
-resend.api_key = os.getenv("RESEND_API_KEY")
+SMTP_EMAIL = os.getenv("SMTP_EMAIL", "vaishnavshinde186@gmail.com")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").replace(" ", "")
 
 
 def _enrich_with_profile(jobs, profile):
@@ -53,9 +56,22 @@ def send_email(to_email, keyword, jobs, profile=None):
     </div>"""
 
     try:
-        resend.Emails.send({"from": "onboarding@resend.dev", "to": to_email, "subject": f"Job Alert: {keyword.title()}", "html": html_body, "text": text_body})
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"Job Alert: {keyword.title()}"
+        msg["From"] = f"FastAPI Res <{SMTP_EMAIL}>"
+        msg["To"] = to_email
+
+        msg.attach(MIMEText(text_body, "plain"))
+        msg.attach(MIMEText(html_body, "html"))
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
+        print(f"Alert email sent successfully to {to_email}")
     except Exception as e:
-        print(f"Email error to {to_email}: {e}")
+        print(f"Email error sending to {to_email}: {e}")
+
 
 
 def _filter_jobs(jobs, keyword, location=None, min_salary=None):
@@ -83,19 +99,30 @@ def _filter_jobs(jobs, keyword, location=None, min_salary=None):
 def match_and_send_alerts(new_jobs):
     if not new_jobs:
         return
-    res = supabase.table("alert_preferences").select("*, users(email, id)").eq("email_enabled", True).execute()
-    if not res.data:
-        return
+    print(f"[Job Alerts] Checking {len(new_jobs)} newly imported jobs against user alert preferences...")
+    try:
+        res = supabase.table("alert_preferences").select("*, users(email, id)").eq("email_enabled", True).execute()
+        if not res.data:
+            print("[Job Alerts] No active user alert preferences found in database.")
+            return
 
-    for pref in res.data:
-        user = pref.get("users")
-        if not user or not user.get("email"):
-            continue
+        sent_count = 0
+        for pref in res.data:
+            user = pref.get("users")
+            if not user or not user.get("email"):
+                continue
 
-        matched = _filter_jobs(new_jobs, pref["keyword"], pref.get("location"), pref.get("min_salary"))
-        if matched:
-            profile = get_ai_profile(user.get("id"))
-            send_email(user["email"], pref["keyword"], _enrich_with_profile(matched, profile), profile)
+            matched = _filter_jobs(new_jobs, pref["keyword"], pref.get("location"), pref.get("min_salary"))
+            if matched:
+                print(f"[Job Alerts] Match found! Sending {len(matched)} job alert(s) to '{user['email']}' for keyword '{pref['keyword']}'")
+                profile = get_ai_profile(user.get("id"))
+                send_email(user["email"], pref["keyword"], _enrich_with_profile(matched, profile), profile)
+                sent_count += 1
+
+        print(f"[Job Alerts] Automatic email alert check completed. Sent {sent_count} alert email(s).")
+    except Exception as e:
+        print(f"[Job Alerts] Error during automatic alert processing: {e}")
+
 
 
 def send_immediate_alerts(user_id, keyword, location=None, min_salary=None):

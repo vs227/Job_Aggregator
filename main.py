@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from database import supabase
@@ -7,6 +8,9 @@ import shutil
 import json
 import tempfile
 import os
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+from scrapers.main import refresh_and_import_jobs
 from RAG import (
     extract_text, get_embedding, save_resume, get_resume,
     match_jobs, generate_answer, analyze_resume_data,
@@ -14,7 +18,34 @@ from RAG import (
     extract_skills_local,
 )
 
-app = FastAPI()
+scheduler = BackgroundScheduler()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        print("[APScheduler] Initializing 3-day background job refresh...")
+        scheduler.add_job(
+            refresh_and_import_jobs,
+            trigger=IntervalTrigger(days=3),
+            args=[50],
+            id='auto_3day_job_refresh',
+            name='3-Day Job Refresh (Adzuna)',
+            replace_existing=True,
+        )
+        scheduler.start()
+        print("[APScheduler] Background scheduler active. Jobs will auto-refresh every 3 days.")
+    except Exception as e:
+        print(f"[APScheduler] Warning starting background scheduler: {e}")
+
+    yield
+
+    try:
+        print("[APScheduler] Shutting down background scheduler...")
+        scheduler.shutdown()
+    except Exception as e:
+        print(f"[APScheduler] Warning shutting down scheduler: {e}")
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,10 +55,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.post("/jobs/refresh")
+def manual_jobs_refresh(background_tasks: BackgroundTasks, user_id: str = Depends(get_current_user)):
+    background_tasks.add_task(refresh_and_import_jobs, 50)
+    return {"message": "Job refresh initiated in background. Outdated jobs will be deleted and 50 fresh ones loaded."}
+
 @app.get("/")
 def home():
     return {
         "message": "Welcome to the Job Aggregator service"
+
     }
 
 @app.post("/register")

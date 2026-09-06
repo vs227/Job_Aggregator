@@ -1,0 +1,323 @@
+================================================================================
+          HIREPULSE PIVOT AI - JOB AGGREGATOR & RAG JOB MATCHING PORTAL
+                   COMPLETE PROJECT EXPLANATION & INTERVIEW GUIDE
+================================================================================
+
+This document is designed to help you explain this project in detail during your 
+interview. It covers the elevator pitch, features, architecture, database design, 
+detailed code walkthrough, RAG pipeline mechanics, and interview Q&As.
+
+--------------------------------------------------------------------------------
+1. ELEVATOR PITCH & HIGH-LEVEL OVERVIEW
+--------------------------------------------------------------------------------
+"HirePulse Pivot AI is a modern, end-to-end Job Aggregator and RAG (Retrieval-
+Augmented Generation) Job Matching Portal. It automatically scrapes and indexes 
+job listings, performs semantic search, and parses user resumes (PDF/DOCX) using 
+Google Gemini models to generate fit scores and identify skill gaps. It features 
+a conversational AI Career Assistant that lets candidates chat with their resume 
+data to get personalized job suggestions and career advice. Additionally, it 
+contains a automated email alert system that delivers personalized matching 
+listings to users using Resend based on custom preferences."
+
+--------------------------------------------------------------------------------
+2. TECHNICAL STACK
+--------------------------------------------------------------------------------
+* FRONTEND: 
+  - React.js (built with Vite)
+  - React Router DOM (for single-page navigation and Protected Routes)
+  - React Hot Toast (for interactive alerts)
+  - Custom Vanilla CSS (featuring a dark mode theme, Glassmorphism, and responsive
+    video backgrounds)
+
+* BACKEND:
+  - FastAPI (Python) - chosen for its asynchronous capability, speed, and 
+    automatic OpenAPI generation.
+  - Pydantic (for data validation and structured schema definitions)
+  - JWT Authentication (python-jose & passlib/bcrypt)
+  - Background Tasks (FastAPI built-in utility for non-blocking processes)
+
+* DATABASE & VECTOR STORE:
+  - Supabase (PostgreSQL) - handles standard relational data and serves as the 
+    Vector Database using the PostgreSQL `pgvector` extension for storing and 
+    querying embeddings.
+
+* AI & MACHINE LEARNING (RAG):
+  - LangChain & LangChain Google GenAI (orchestration framework)
+  - Gemini 2.0 Flash Lite (`gemini-2.0-flash-lite`) - utilized with structured 
+    output parsing for extracting profile data, analyzing resumes, and answering 
+    chat queries.
+  - Gemini Embedding Model (`models/gemini-embedding-001`) - used to create 768-
+    dimension vector representations of jobs and resumes.
+  - PyPDF & Python-Docx - for raw text extraction from uploaded resumes.
+
+* SERVICES & INFRASTRUCTURE:
+  - Resend API (for transactional emails & job alerts)
+  - APScheduler (Advanced Python Scheduler - BlockingScheduler for running the 
+    job crawler as a background service)
+  - Adzuna Jobs API (external job source provider)
+
+--------------------------------------------------------------------------------
+3. CORE SYSTEM FEATURES
+--------------------------------------------------------------------------------
+1. User Authentication & Authorization:
+   Secure registration and login endpoints utilizing bcrypt password hashing and 
+   stateless JWT token validation.
+
+2. Job Aggregator Scraper & Scheduler:
+   An automated scraper (`scrapers/main.py`) that queries the Adzuna API for various 
+   industry keywords, checks for duplicates in Supabase, computes text embeddings 
+   of job details, and indexes them. An APScheduler daemon (`scrapers/scheduler.py`) 
+   runs this pipeline automatically every 4 days.
+
+3. RAG-Powered Resume Upload & Profiler:
+   Accepts PDF/DOCX resumes. The backend extracts raw text and runs it through 
+   Gemini 2.0 Flash Lite using Pydantic schemas (`with_structured_output`) to output 
+   a structured JSON profile (skills, education, projects, experience level, 
+   and preferred roles). 
+
+4. Semantic Resume Matching (pgvector):
+   Generate embedding vector for the resume. Runs a cosine-similarity search against 
+   the jobs table inside Supabase using a database stored procedure (RPC `match_jobs`). 
+   Returns the top 10 matching jobs above a 0.25 similarity threshold.
+
+5. Resume Analysis & Skill Gap Identifier:
+   Compares the candidate's resume text against matched job descriptions to 
+   calculate a Job Fit Score (out of 100), identify matched skills, extract missing 
+   demanded skills (skills needed for these jobs that aren't on the resume), and 
+   write custom optimization recommendations.
+
+6. HirePulse Pivot AI Chatbot:
+   An interactive chatbot. Users chat about their profile or career goals. The backend 
+   takes the chat message, computes a retrieval query vector, queries pgvector 
+   for the most relevant jobs, and passes this context to Gemini 2.0 Flash Lite. 
+   The chatbot returns a conversational answer *along with* a structured list of 
+   matched jobs (complete with match reasons and links) in a single API response.
+
+7. Automated Email Alerts:
+   Users set alert preferences (e.g., keyword: "Python", location: "Mumbai", min_salary). 
+   When the scraper imports new jobs, or when immediate alerts are triggered, the 
+   system filters the new jobs, matches them to users, enriches the email content 
+   with user-specific matched/missing skills based on their AI profile, and emails 
+   the digest using Resend.
+
+--------------------------------------------------------------------------------
+4. ARCHITECTURE & DATA FLOW
+--------------------------------------------------------------------------------
+
+[User Uploads Resume] 
+        │
+        ▼ (FastAPI /resume/upload)
+[Extract Raw Text] (PyPDF / python-docx)
+        │
+        ├──────────────────────────────┐
+        ▼ (Generate Vector)            ▼ (Extract AI Profile)
+[Gemini Embedding 768d]        [Gemini 2.0 Flash Lite Structured Output]
+        │                              │ (skills, education, experience, roles)
+        ▼ (Vector Database Query)      ▼
+[Supabase pgvector (match_jobs)]   [Save Profile to user_ai_profiles]
+        │                              │
+        ├──────────────────────────────┘
+        ▼
+[Analyze Resume vs Matched Jobs] (Gemini 2.0 Flash Lite)
+        │ (Calculates Match Score, Matched/Missing Skills, Recommendation)
+        ▼
+[Save Analysis & Profile to DB] ──► [Return JSON response to React Frontend]
+
+--------------------------------------------------------------------------------
+5. DETAILED DATABASE SCHEMA
+--------------------------------------------------------------------------------
+* `users`
+  - `id`: integer (Primary Key)
+  - `username`: text
+  - `email`: text (Unique)
+  - `password_hash`: text
+  - `created_at`: timestamp
+
+* `job_sources`
+  - `id`: integer (Primary Key)
+  - `source_name`: text (e.g., "Adzuna")
+  - `source_url`: text
+
+* `jobs`
+  - `id`: integer (Primary Key)
+  - `title`: text
+  - `company`: text
+  - `location`: text
+  - `salary`: integer (Optional)
+  - `job_type`: text (e.g., "Full-time")
+  - `description`: text
+  - `job_url`: text
+  - `source_id`: integer (Foreign Key -> job_sources.id)
+  - `embedding`: vector(768) (pgvector data type)
+  - `created_at`: timestamp
+
+* `saved_jobs`
+  - `id`: integer (Primary Key)
+  - `user_id`: integer (Foreign Key -> users.id)
+  - `job_id`: integer (Foreign Key -> jobs.id)
+
+* `alert_preferences`
+  - `id`: integer (Primary Key)
+  - `user_id`: integer (Foreign Key -> users.id)
+  - `keyword`: text
+  - `location`: text (Optional)
+  - `min_salary`: integer (Optional)
+  - `email_enabled`: boolean
+
+* `user_resumes`
+  - `user_id`: integer (Primary Key, Foreign Key -> users.id)
+  - `resume_text`: text
+  - `embedding`: vector(768)
+
+* `user_ai_profiles`
+  - `user_id`: integer (Primary Key, Foreign Key -> users.id)
+  - `top_skills`: text[] (array of strings)
+  - `experience_level`: text
+  - `preferred_roles`: text[]
+  - `education`: text
+  - `projects_summary`: text
+  - `job_fit_score`: integer
+  - `missing_skills`: text[]
+
+--------------------------------------------------------------------------------
+6. EXPLAINING THE CODE STRUCTURE (KEY FILES)
+--------------------------------------------------------------------------------
+* `main.py`
+  - Houses the FastAPI application setup, CORS middlewares, and route handlers.
+  - Implements route dependencies such as `get_current_user` to secure private 
+    endpoints.
+  - Handles `/resume/upload` using `UploadFile` and temporary directories, and 
+    invokes RAG modules.
+  - Implements the `/resume/chat` endpoint which processes conversational queries.
+
+* `RAG/__init__.py`
+  - The core AI layer. Configures `GoogleGenerativeAIEmbeddings` using the key 
+    retrieved from environment variables.
+  - Defines the Pydantic structured output schemas: `AIProfile`, `ResumeAnalysis`, 
+    `JobMatchReason`, and `ChatResponse`.
+  - Defines system-level prompts (`PROFILE_PROMPT`, `ANALYSIS_PROMPT`, `CHAT_PROMPT`).
+  - Contains `extract_skills_local` fallback. If the Gemini API is rate-limited 
+    or unavailable, it uses regex matches against a list of 70+ technology keywords 
+    (`KNOWN_SKILLS`) so the app never crashes.
+  - Interacts with Supabase using `.rpc("match_jobs", ...)` to query vector matches.
+
+* `alerts.py`
+  - Implements the notification system.
+  - Integrates the Resend Python SDK to build clean responsive HTML emails.
+  - Contains `_enrich_with_profile` which highlights matching skills in green 
+    and missing skills in orange directly inside the alert email body.
+  - Uses background tasks to send instant alerts without slowing down the user UI.
+
+* `scrapers/main.py`
+  - Queries Adzuna jobs API using requests.
+  - Iterates over 20+ career keywords (e.g., Python, Software Developer, HR).
+  - Normalizes salary data, limits description size, and checks for duplicates.
+  - Automatically requests embeddings from the Gemini Embedding model before 
+    inserting jobs into Supabase, and triggers emails.
+
+--------------------------------------------------------------------------------
+7. TOP INTERVIEW QUESTIONS & MODEL ANSWERS
+--------------------------------------------------------------------------------
+
+Q1: What is RAG, and how is it used in your project?
+A: "RAG stands for Retrieval-Augmented Generation. Instead of relying solely on 
+   a static language model, RAG fetches relevant external context (in this case, 
+   matching job listings from our vector database) and passes that context to the 
+   LLM. 
+   When a user uploads a resume or chats with HirePulse Pivot AI, we embed the 
+   text, retrieve matching jobs from Supabase using vector similarity search, and 
+   provide these jobs as context to Gemini. This ensures the chatbot's answers are 
+   grounded in real job data, preventing hallucinations and giving highly 
+   personalized career recommendations."
+
+Q2: How did you implement vector search?
+A: "I used the pgvector extension in Supabase (PostgreSQL). 
+   - I utilized the `models/gemini-embedding-001` model from Google GenAI to 
+     generate 768-dimensional embeddings for both job descriptions and resumes.
+   - I stored these vectors in a dedicated `embedding` column of type `vector(768)`.
+   - I created a PostgreSQL stored procedure (RPC) called `match_jobs` which 
+     calculates the cosine distance between the query embedding and the job 
+     embeddings, returning job records sorted by similarity."
+
+Q3: How does your PostgreSQL 'match_jobs' function look?
+A: "It is a PL/pgSQL function stored in Supabase:
+   CREATE OR REPLACE FUNCTION match_jobs (
+     query_embedding vector(768),
+     match_threshold float,
+     match_count int
+   ) RETURNS TABLE (
+     id int, title text, company text, location text, 
+     salary int, description text, job_url text, similarity float
+   ) AS $$
+   BEGIN
+     RETURN QUERY
+     SELECT jobs.id, jobs.title, jobs.company, jobs.location, 
+            jobs.salary, jobs.description, jobs.job_url,
+            1 - (jobs.embedding <=> query_embedding) AS similarity
+     FROM jobs
+     WHERE 1 - (jobs.embedding <=> query_embedding) > match_threshold
+     ORDER BY jobs.embedding <=> query_embedding ASC
+     LIMIT match_count;
+   END;
+   $$ LANGUAGE plpgsql;"
+
+Q4: What is Structured Output in LLMs, and why is it important here?
+A: "Structured output forces the LLM to return data conforming strictly to a 
+   defined schema (like a JSON object matching a Pydantic model) rather than freeform 
+   text. 
+   I used LangChain's `.with_structured_output()` combined with Pydantic models. 
+   For example, when parsing a resume, the LLM must return an `AIProfile` containing 
+   a list of skills (max 8) and preferred roles (max 5). In the chatbot, it must 
+   return a `ChatResponse` containing both the conversational text and a structured 
+   list of job IDs with match reasons. This prevents parsing errors in the frontend."
+
+Q5: How did you handle API failures or rate limits (e.g., if Gemini is down)?
+A: "I designed a robust fallback mechanism. In `RAG/__init__.py`, the AI-based 
+   functions are wrapped in try-except blocks. If the Gemini API call fails, the 
+   system falls back to `extract_skills_local()`, which runs local regex-based keyword 
+   matching against a static list of 72 common tech skills (`KNOWN_SKILLS`). 
+   It then returns a placeholder profile stating 'AI service currently unavailable', 
+   preserving core functionality and preventing the backend from crashing."
+
+Q6: How does the authentication system work?
+A: "It's a standard JWT authentication scheme. When registering, the user's password 
+   is hashed using `bcrypt` and stored in the database. During login, the password is 
+   verified against the stored hash. If valid, the backend creates a JWT token signed 
+   with a HS256 secret key that expires in 30 minutes. 
+   For protected endpoints, FastAPI uses the `Depends(get_current_user)` dependency, 
+   which extracts the bearer token, decodes it, and validates the user's identity."
+
+Q7: How are background tasks and scheduled tasks handled?
+A: "I used two different approaches based on the use case:
+   - For immediate alerts (e.g., when a user creates a new alert preference), I used 
+     FastAPI's built-in `BackgroundTasks` to send the notification email. This lets 
+     the API immediately return a success response to the user, while the email 
+     sends asynchronously in the background.
+   - For recurring job imports, I built a separate scheduler service using 
+     `APScheduler` (`scrapers/scheduler.py`). It runs a `BlockingScheduler` daemon 
+     that triggers the scraper script (`run_scraper()`) every 4 days."
+
+--------------------------------------------------------------------------------
+8. USER JOURNEY / WALKTHROUGH FOR DEMO
+--------------------------------------------------------------------------------
+If you need to show the project or explain the flow, use this sequence:
+1. Landing Page: User arrives at the premium dark-themed UI.
+2. Register/Login: Creates an account. They are redirected to the Dashboard.
+3. Browse Jobs: Displays job listings scraped from Adzuna. Users can filter by 
+   keyword, location, minimum salary, and job type.
+4. Bookmark: User bookmarks a job; it is saved in their Saved Jobs folder.
+5. Setup Alerts: User goes to Alerts, registers "React Developer" in "Mumbai".
+6. Resume Analysis: User uploads a resume (PDF/Docx). The spinner starts. 
+   - Backend extracts text, embeds it, queries matching jobs.
+   - Returns a custom 'Match Score' shown with a water-fill animation.
+   - Lists extracted skills vs missing skills and provides career advice.
+7. Chatbot: User starts chatting with HirePulse Pivot AI. Asks: "Recommend me 
+   Python roles". The AI chatbot replies conversationally and embeds job cards 
+   directly inside the chat timeline with "Apply Now" buttons.
+8. Email Notification: Under the hood, when the scraper runs, the user receives 
+   a responsive HTML email showing matched jobs matching their alert, marked with 
+   skills they have and skills they need to learn.
+
+================================================================================
+                                 GOOD LUCK!
+================================================================================

@@ -13,7 +13,7 @@ load_dotenv()
 
 ADZUNA_APP_ID = os.getenv("ADZUNA_APP_ID")
 ADZUNA_APP_KEY = os.getenv("ADZUNA_APP_KEY")
-TARGET_JOBS = 60
+TARGET_JOBS = 50
 
 KEYWORDS = [
     "software developer", "data analyst", "web developer", "python",
@@ -32,12 +32,20 @@ def get_or_create_source():
     new = supabase.table("job_sources").insert({"source_name": "Adzuna", "source_url": "https://www.adzuna.in"}).execute()
     return new.data[0]["id"]
 
-def job_exists(job_url, title, company):
-    if job_url and supabase.table("jobs").select("id").eq("job_url", job_url).execute().data:
-        return True
-    if title and company:
-        return bool(supabase.table("jobs").select("id").eq("title", title).eq("company", company).execute().data)
-    return False
+def clear_old_jobs():
+    """Delete all outdated jobs (and saved_jobs referencing them) to ensure fresh data."""
+    print("Deleting old/outdated jobs from Supabase...")
+    try:
+        supabase.table("saved_jobs").delete().neq("id", 0).execute()
+        print("  Old saved_jobs references cleared.")
+    except Exception as e:
+        print(f"  [WARNING] Error clearing saved_jobs: {e}")
+
+    try:
+        supabase.table("jobs").delete().neq("id", 0).execute()
+        print("  Outdated jobs deleted successfully.")
+    except Exception as e:
+        print(f"  [ERROR] Failed to delete old jobs: {e}")
 
 def fetch_jobs(keyword, page=1):
     try:
@@ -56,12 +64,17 @@ def fetch_jobs(keyword, page=1):
         print(f"  [ERROR] {e}")
         return []
 
-def main():
-    print("Starting Adzuna job import...")
+def refresh_and_import_jobs(target_jobs=50):
+    print("==========================================")
+    print(f"Starting 3-day job refresh (Target: {target_jobs} fresh jobs)...")
+    print("==========================================")
 
     if not ADZUNA_APP_ID or not ADZUNA_APP_KEY:
         print("[FATAL] ADZUNA_APP_ID or ADZUNA_APP_KEY not set in .env")
         return
+
+    # Delete existing outdated jobs first
+    clear_old_jobs()
 
     source_id = get_or_create_source()
     inserted, skipped = 0, 0
@@ -69,12 +82,12 @@ def main():
     new_jobs = []
 
     for keyword in KEYWORDS:
-        if inserted >= TARGET_JOBS:
+        if inserted >= target_jobs:
             break
 
         print(f"\nSearching: \"{keyword}\"")
         for job in fetch_jobs(keyword):
-            if inserted >= TARGET_JOBS:
+            if inserted >= target_jobs:
                 break
             try:
                 url = job.get("redirect_url", "")
@@ -90,9 +103,6 @@ def main():
                     skipped += 1
                     continue
                 seen.add(url)
-                if job_exists(url, title, company):
-                    skipped += 1
-                    continue
 
                 embedding = None
                 try:
@@ -111,17 +121,24 @@ def main():
                     new_jobs.append(res.data[0])
 
                 inserted += 1
-                print(f"  Inserted: {title} at {company}")
+                print(f"  [{inserted}/{target_jobs}] Inserted: {title} at {company}")
             except Exception as e:
                 print(f"  [ERROR] {e}")
 
         time.sleep(1)
 
-    print(f"\nDone! {inserted} jobs imported, {skipped} duplicates skipped.")
+    print(f"\nDone! {inserted} fresh jobs imported, replacing outdated jobs.")
 
     if new_jobs:
-        from alerts import match_and_send_alerts
-        match_and_send_alerts(new_jobs)
+        try:
+            from alerts import match_and_send_alerts
+            match_and_send_alerts(new_jobs)
+        except Exception as e:
+            print(f"  [WARNING] Alert processing error: {e}")
+
+def main():
+    refresh_and_import_jobs(TARGET_JOBS)
 
 if __name__ == "__main__":
     main()
+
