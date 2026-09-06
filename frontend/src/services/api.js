@@ -1,5 +1,6 @@
-const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const rawBaseUrl = import.meta.env.VITE_API_URL || 'https://job-aggregator-foh6.onrender.com';
 const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
+
 
 function getHeaders() {
   const token = localStorage.getItem('token');
