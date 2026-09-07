@@ -3,3 +3,6 @@
 venv/
 __pycache__/
 *.pyc
+# OAuth setup scripts with credentials
+get_token.py
+setup_gmail_oauth.py
