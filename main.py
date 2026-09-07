@@ -207,22 +207,11 @@ def debug_email_status(to: str = None):
 
 @app.get("/debug/send-otp-test")
 def debug_send_otp_test(to: str = "vaishnavshinde186@gmail.com"):
-    """Send the EXACT same email format as forgot-password to test delivery."""
-    from alerts import _send_brevo_api_email
+    """Send a test OTP email using the exact same priority logic as real registration/forgot-password."""
     otp_code = f"{random.randint(100000, 999999)}"
-    html_body = f"""
-    <div style="max-width:500px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff;color:#111827;padding:32px;border-radius:12px;border:1px solid #e5e7eb;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05)">
-        <h2 style="color:#111827;margin-top:0;font-size:1.4rem;font-weight:700">Reset Your HirePulse Password</h2>
-        <p style="color:#4b5563;font-size:0.95rem;line-height:1.5">Use the following 6-digit verification code to reset your password and verify your identity:</p>
-        <div style="font-size:2.2rem;font-weight:800;letter-spacing:8px;color:#dc2626;background:#fef2f2;border:1px solid #fecaca;padding:16px;text-align:center;border-radius:8px;margin:24px 0">
-            {otp_code}
-        </div>
-        <p style="color:#6b7280;font-size:0.85rem;margin-bottom:0">This code will expire in 10 minutes. If you did not request a password reset, please ignore this email.</p>
-    </div>
-    """
-    text_body = f"Your HirePulse password reset code is: {otp_code}"
-    result = _send_brevo_api_email(to, f"Your HirePulse password reset code is {otp_code}", html_body, text_body=text_body, sender_name="HirePulse Security")
-    return {"otp_sent": otp_code, "to": to, "brevo_result": result}
+    success = send_password_reset_otp_email(to, otp_code)
+    return {"otp_code": otp_code, "to": to, "send_success": success}
+
 
 
 # ─── OTP Helper Storage Functions ────────────────────────────────────
