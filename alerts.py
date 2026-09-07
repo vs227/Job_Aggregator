@@ -10,8 +10,10 @@ from database import supabase
 from RAG import get_ai_profile
 
 import json
+import base64
 import urllib.request
 import urllib.error
+import urllib.parse
 
 def _get_sender_email():
     return (
@@ -21,6 +23,90 @@ def _get_sender_email():
         "parasff0007@gmail.com"
     ).strip().strip('"').strip("'")
 
+
+# ─── Gmail API over HTTPS (Port 443 — NOT blocked by Render) ─────────
+
+def _get_gmail_access_token() -> str:
+    """Exchange refresh token for a fresh access token via Google OAuth2."""
+    client_id = os.getenv("GMAIL_CLIENT_ID", "").strip()
+    client_secret = os.getenv("GMAIL_CLIENT_SECRET", "").strip()
+    refresh_token = os.getenv("GMAIL_REFRESH_TOKEN", "").strip()
+
+    if not all([client_id, client_secret, refresh_token]):
+        return ""
+
+    try:
+        payload = urllib.parse.urlencode({
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token"
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            "https://oauth2.googleapis.com/token",
+            data=payload,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("access_token", "")
+    except Exception as e:
+        print(f"[Gmail API] Failed to get access token: {e}")
+        return ""
+
+
+def _send_gmail_api_email(to_email: str, subject: str, text_body: str, html_body: str, sender_name: str = "HirePulse AI") -> dict:
+    """Send email via Gmail REST API over HTTPS (port 443). Not blocked by Render."""
+    access_token = _get_gmail_access_token()
+    if not access_token:
+        return {"ok": False, "error": "Gmail API credentials not configured (need GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN)"}
+
+    sender_email = _get_sender_email()
+
+    # Build MIME message
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"{sender_name} <{sender_email}>"
+    msg["To"] = to_email
+    msg.attach(MIMEText(text_body, "plain"))
+    msg.attach(MIMEText(html_body, "html"))
+
+    # Gmail API requires base64url-encoded raw message
+    raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+
+    try:
+        payload = json.dumps({"raw": raw_message}).encode("utf-8")
+        req = urllib.request.Request(
+            "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            resp_body = resp.read().decode("utf-8", errors="replace")
+            resp_data = json.loads(resp_body) if resp_body else {}
+            msg_id = resp_data.get("id", "unknown")
+            print(f"[Gmail API Success] Email sent to {to_email} | id={msg_id}")
+            return {"ok": True, "id": msg_id, "method": "gmail_api", "response": resp_data}
+    except urllib.error.HTTPError as he:
+        err_body = ""
+        try:
+            err_body = he.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        print(f"[Gmail API HTTP Error] {he.code}: {err_body}")
+        return {"ok": False, "http_error": he.code, "detail": err_body, "method": "gmail_api"}
+    except Exception as e:
+        print(f"[Gmail API Error] {e}")
+        return {"ok": False, "error": str(e), "method": "gmail_api"}
+
+# ─── Brevo HTTPS API ─────────────────────────────────────────────────
 
 def _send_brevo_api_email(to_email: str, subject: str, html_body: str, text_body: str = "", sender_name: str = "HirePulse AI") -> dict:
     """Returns dict with 'ok' bool and 'detail' info."""
@@ -79,18 +165,27 @@ def _send_brevo_api_email(to_email: str, subject: str, html_body: str, text_body
         return {"ok": False, "error": str(e)}
 
 
+# ─── Unified Email Sender (Priority: Gmail API → Brevo → SMTP) ──────
+
 def _send_smtp_email(to_email: str, subject: str, text_body: str, html_body: str, sender_name: str = "HirePulse AI") -> bool:
-    # Primary: Brevo HTTPS API
+    # 1st Priority: Gmail API over HTTPS (works on Render, emails from real Gmail)
+    if os.getenv("GMAIL_REFRESH_TOKEN"):
+        result = _send_gmail_api_email(to_email, subject, text_body, html_body, sender_name=sender_name)
+        if result.get("ok"):
+            return True
+        print(f"[Email] Gmail API failed, trying fallbacks... ({result})")
+
+    # 2nd Priority: Brevo HTTPS API
     if os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY"):
         result = _send_brevo_api_email(to_email, subject, html_body, text_body=text_body, sender_name=sender_name)
         return result.get("ok", False)
 
-    # Fallback SMTP if configured
+    # 3rd Priority: Direct Gmail SMTP (works locally, blocked on Render free tier)
     smtp_email = _get_sender_email()
     smtp_password = os.getenv("SMTP_PASSWORD", "").replace(" ", "").strip()
 
     if not smtp_password:
-        print(f"[Email Error] BREVO_API_KEY is missing. Email to {to_email} skipped.")
+        print(f"[Email Error] No email method available. Email to {to_email} skipped.")
         return False
 
     msg = MIMEMultipart("alternative")
