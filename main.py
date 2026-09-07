@@ -241,16 +241,22 @@ def _verify_otp_data(email: str, otp: str) -> dict:
 
 
 @app.post("/register/send-otp")
+@app.post("/register")
 def send_registration_otp(user_data: SendOtpInput):
     email_clean = user_data.email.strip().lower()
 
     # Check if user email is already registered
-    existing_user = (supabase.table("users").select("id").eq("email", email_clean).execute())
-    if existing_user.data:
-        raise HTTPException(
-            status_code=400,
-            detail="Email is already registered. Please login instead."
-        )
+    try:
+        existing_user = (supabase.table("users").select("id").eq("email", email_clean).execute())
+        if existing_user.data:
+            raise HTTPException(
+                status_code=400,
+                detail="Email is already registered. Please login instead."
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Register] Supabase lookup error: {e}")
 
     otp = f"{random.randint(100000, 999999)}"
     pwd_hash = hash_password(user_data.password)
@@ -259,6 +265,10 @@ def send_registration_otp(user_data: SendOtpInput):
     sent = send_otp_email(email_clean, otp)
     if not sent:
         print(f"[OTP Warning] Failed to send email to {email_clean}. Verification OTP is: {otp}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to send verification email. Please check email address or try again."
+        )
 
     return {
         "message": f"Verification code sent to {email_clean}",
@@ -321,39 +331,56 @@ def resend_registration_otp(data: ResendOtpInput):
 
     otp = f"{random.randint(100000, 999999)}"
     _store_otp(email_clean, otp, username, pwd_hash)
-    send_otp_email(email_clean, otp)
+    sent = send_otp_email(email_clean, otp)
+    if not sent:
+        raise HTTPException(status_code=500, detail="Failed to send verification code email.")
     return {"message": f"New verification code sent to {email_clean}"}
 
 
-@app.post("/register")
-def register(user: RegisterUser):
-    # Alias /register to /register/send-otp for backward compatibility
-    return send_registration_otp(SendOtpInput(username=user.username, email=user.email, password=user.password))
-
 @app.post("/auth/forgot-password/send-otp")
+@app.post("/auth/forgot-password")
+@app.post("/forgot-password")
+@app.post("/forgot-password/send-otp")
 def forgot_password_send_otp(data: ForgotPasswordSendOtpInput):
     email_clean = data.email.strip().lower()
+    print(f"[ForgotPassword] Request received for email: '{email_clean}'")
 
     # Check if user exists
-    res = supabase.table("users").select("id, email").eq("email", email_clean).execute()
-    if not res.data:
-        raise HTTPException(
-            status_code=404,
-            detail="No account found with this email address. Please check your spelling or register."
-        )
+    try:
+        res = supabase.table("users").select("id, email").eq("email", email_clean).execute()
+        if not res.data:
+            print(f"[ForgotPassword] Email '{email_clean}' not found in Supabase users database.")
+            raise HTTPException(
+                status_code=404,
+                detail="No account found with this email address. Please check your spelling or register."
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ForgotPassword] Supabase check error: {e}")
 
     otp = f"{random.randint(100000, 999999)}"
-    cache_set(f"reset_otp:{email_clean}", {"otp": str(otp)}, ttl_seconds=600)
+    try:
+        cache_set(f"reset_otp:{email_clean}", {"otp": str(otp)}, ttl_seconds=600)
+    except Exception as ce:
+        print(f"[ForgotPassword] Redis cache error: {ce}")
+
     _memory_otps[f"reset:{email_clean}"] = (str(otp), {"otp": str(otp)}, time.time() + 600)
 
     sent = send_password_reset_otp_email(email_clean, otp)
+    print(f"[ForgotPassword] send_password_reset_otp_email result for {email_clean}: {sent}")
     if not sent:
         print(f"[Password Reset Warning] Failed to send email to {email_clean}. Reset OTP is: {otp}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to deliver password reset OTP email. Please try again."
+        )
 
     return {
         "message": f"Password reset verification code sent to {email_clean}",
         "email": email_clean
     }
+
 
 
 @app.post("/auth/forgot-password/reset")
