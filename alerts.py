@@ -170,44 +170,57 @@ def _send_brevo_api_email(to_email: str, subject: str, html_body: str, text_body
         return {"ok": False, "error": str(e)}
 
 
-# ─── Unified Email Sender (Priority: Gmail API → Brevo → SMTP) ──────
+last_email_error = ""
+
+def get_last_email_error() -> str:
+    global last_email_error
+    return last_email_error or "Unknown email delivery error"
+
 
 def _send_smtp_email(to_email: str, subject: str, text_body: str, html_body: str, sender_name: str = "HirePulse AI") -> bool:
+    global last_email_error
+    last_email_error = ""
+
     # 1st Priority: Gmail API over HTTPS (works on Render, emails from real Gmail)
     if os.getenv("GMAIL_REFRESH_TOKEN"):
         result = _send_gmail_api_email(to_email, subject, text_body, html_body, sender_name=sender_name)
         if result.get("ok"):
             return True
-        print(f"[Email] Gmail API failed, trying fallbacks... ({result})")
+        err_msg = f"Gmail API error: {result.get('error') or result.get('detail') or result.get('http_error') or result}"
+        last_email_error = err_msg
+        print(f"[Email] {err_msg}, trying fallbacks...")
 
     # 2nd Priority: Brevo HTTPS API
     if os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY"):
         result = _send_brevo_api_email(to_email, subject, html_body, text_body=text_body, sender_name=sender_name)
-        return result.get("ok", False)
+        if result.get("ok"):
+            return True
+        err_msg = f"Brevo API error: {result.get('error') or result.get('detail') or result.get('http_error') or result}"
+        last_email_error = (last_email_error + " | " + err_msg) if last_email_error else err_msg
+        print(f"[Email] {err_msg}")
+        return False
 
     # 3rd Priority: Direct Gmail SMTP (works locally, blocked on Render free tier)
     smtp_email = _get_sender_email()
     smtp_password = os.getenv("SMTP_PASSWORD", "").replace(" ", "").strip()
 
     if not smtp_password:
-        print(f"[Email Error] No email method available. Email to {to_email} skipped.")
+        err_msg = "No email credentials configured (GMAIL_REFRESH_TOKEN, BREVO_API_KEY, and SMTP_PASSWORD are all missing)"
+        last_email_error = err_msg
+        print(f"[Email Error] {err_msg}")
         return False
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = f"{sender_name} <{smtp_email}>"
-    msg["To"] = to_email
-    msg.attach(MIMEText(text_body, "plain"))
-    msg.attach(MIMEText(html_body, "html"))
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=12) as server:
             server.login(smtp_email, smtp_password)
-            server.sendmail(smtp_email, to_email, msg.as_string())
+            server.sendmail(smtp_email, to_email, text_body)
         return True
     except Exception as err:
+        err_msg = f"SMTP error: {err}"
+        last_email_error = err_msg
         print(f"[SMTP Error] Failed to send email: {err}")
         return False
+
 
 
 def _brevo_api_get(endpoint: str) -> dict:

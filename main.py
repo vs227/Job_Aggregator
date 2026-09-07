@@ -18,7 +18,7 @@ from models import (
     LoginUser, ForgotPasswordSendOtpInput, ForgotPasswordResetInput,
     JobsInput, SavedJob, AlertPreference, SearchJob, SourceInput, ResumeChatInput
 )
-from alerts import send_otp_email, send_password_reset_otp_email, test_smtp_diagnostic, get_email_status_diagnostic
+from alerts import send_otp_email, send_password_reset_otp_email, test_smtp_diagnostic, get_email_status_diagnostic, get_last_email_error
 
 import shutil
 import json
@@ -378,11 +378,13 @@ def forgot_password_send_otp(data: ForgotPasswordSendOtpInput):
     sent = send_password_reset_otp_email(email_clean, otp)
     print(f"[ForgotPassword] send_password_reset_otp_email result for {email_clean}: {sent}")
     if not sent:
-        print(f"[Password Reset Warning] Failed to send email to {email_clean}. Reset OTP is: {otp}")
+        err_msg = get_last_email_error()
+        print(f"[Password Reset Warning] Failed to send email to {email_clean}. Detail: {err_msg}")
         raise HTTPException(
             status_code=500,
-            detail="Failed to deliver password reset OTP email. Please try again."
+            detail=f"Failed to deliver password reset OTP email: {err_msg}"
         )
+
 
     return {
         "message": f"Password reset verification code sent to {email_clean}",
