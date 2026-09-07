@@ -4,8 +4,8 @@ load_dotenv()
 
 import smtplib
 from email.mime.multipart import MIMEMultipart
-
 from email.mime.text import MIMEText
+from email.message import EmailMessage
 from database import supabase
 from RAG import get_ai_profile
 
@@ -63,18 +63,22 @@ def _send_gmail_api_email(to_email: str, subject: str, text_body: str, html_body
     if not access_token:
         return {"ok": False, "error": "Gmail API credentials not configured (need GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN)"}
 
+    # Ensure sender matches authenticated Gmail account to prevent silent SPF/spoofing drop
     sender_email = _get_sender_email()
+    if not sender_email.endswith("@gmail.com"):
+        sender_email = "parasff0007@gmail.com"
 
-    # Build MIME message
-    msg = MIMEMultipart("alternative")
+    # Build clean EmailMessage for Gmail API
+    msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = f"{sender_name} <{sender_email}>"
     msg["To"] = to_email
-    msg.attach(MIMEText(text_body, "plain"))
-    msg.attach(MIMEText(html_body, "html"))
+    msg.set_content(text_body)
+    if html_body:
+        msg.add_alternative(html_body, subtype="html")
 
-    # Gmail API requires base64url-encoded raw message
-    raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+    # Gmail API requires base64url-encoded raw message WITHOUT trailing '=' padding
+    raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8").rstrip("=")
 
     try:
         payload = json.dumps({"raw": raw_message}).encode("utf-8")
@@ -92,8 +96,8 @@ def _send_gmail_api_email(to_email: str, subject: str, text_body: str, html_body
             resp_body = resp.read().decode("utf-8", errors="replace")
             resp_data = json.loads(resp_body) if resp_body else {}
             msg_id = resp_data.get("id", "unknown")
-            print(f"[Gmail API Success] Email sent to {to_email} | id={msg_id}")
-            return {"ok": True, "id": msg_id, "method": "gmail_api", "response": resp_data}
+            print(f"[Gmail API Success] Email sent to {to_email} | id={msg_id} | from={sender_email}")
+            return {"ok": True, "id": msg_id, "method": "gmail_api", "sender_email": sender_email, "response": resp_data}
     except urllib.error.HTTPError as he:
         err_body = ""
         try:
@@ -105,6 +109,7 @@ def _send_gmail_api_email(to_email: str, subject: str, text_body: str, html_body
     except Exception as e:
         print(f"[Gmail API Error] {e}")
         return {"ok": False, "error": str(e), "method": "gmail_api"}
+
 
 # ─── Brevo HTTPS API ─────────────────────────────────────────────────
 
@@ -312,10 +317,16 @@ def get_email_status_diagnostic(to_email: str = None) -> dict:
 
     if to_email:
         res["test_send_target"] = to_email
-        send_res = _send_smtp_email(to_email, "HirePulse OTP Test", "Your test OTP is 123456", "<div style='font-family:sans-serif;padding:20px'><h2>HirePulse Test</h2><p>Your verification code is <strong>123456</strong>.</p></div>")
-        res["test_send_success"] = send_res
+        if gmail_configured:
+            gmail_res = _send_gmail_api_email(to_email, "HirePulse OTP Diagnostic Test", "Your test OTP is 123456", "<div style='font-family:sans-serif;padding:20px'><h2>HirePulse Test</h2><p>Your verification code is <strong>123456</strong>.</p></div>")
+            res["gmail_api_send_detail"] = gmail_res
+            res["test_send_success"] = gmail_res.get("ok", False)
+        else:
+            send_res = _send_smtp_email(to_email, "HirePulse OTP Test", "Your test OTP is 123456", "<div style='font-family:sans-serif;padding:20px'><h2>HirePulse Test</h2><p>Your verification code is <strong>123456</strong>.</p></div>")
+            res["test_send_success"] = send_res
 
     return res
+
 
 
 
