@@ -11,6 +11,7 @@ from RAG import get_ai_profile
 
 import json
 import urllib.request
+import urllib.error
 
 def _get_sender_email():
     return (
@@ -21,11 +22,12 @@ def _get_sender_email():
     ).strip().strip('"').strip("'")
 
 
-def _send_brevo_api_email(to_email: str, subject: str, html_body: str, text_body: str = "", sender_name: str = "HirePulse AI") -> bool:
+def _send_brevo_api_email(to_email: str, subject: str, html_body: str, text_body: str = "", sender_name: str = "HirePulse AI") -> dict:
+    """Returns dict with 'ok' bool and 'detail' info."""
     api_key = (os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY") or "").strip()
     if not api_key:
         print("[Email Warning] BREVO_API_KEY is not set in environment.")
-        return False
+        return {"ok": False, "error": "BREVO_API_KEY not set"}
     sender_email = _get_sender_email()
     try:
         payload_dict = {
@@ -50,19 +52,38 @@ def _send_brevo_api_email(to_email: str, subject: str, html_body: str, text_body
             },
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=12) as response:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            resp_body = response.read().decode("utf-8", errors="replace")
+            resp_data = {}
+            try:
+                resp_data = json.loads(resp_body)
+            except Exception:
+                pass
             if response.status in (200, 201):
-                print(f"[Brevo API Success] Email sent to {to_email}")
-                return True
+                msg_id = resp_data.get("messageId", "unknown")
+                print(f"[Brevo API Success] Email sent to {to_email} | messageId={msg_id} | status={response.status}")
+                return {"ok": True, "messageId": msg_id, "status": response.status, "response": resp_data}
+            else:
+                print(f"[Brevo API Unexpected] status={response.status} body={resp_body}")
+                return {"ok": False, "status": response.status, "response": resp_data}
+    except urllib.error.HTTPError as he:
+        err_body = ""
+        try:
+            err_body = he.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        print(f"[Brevo API HTTP Error] {he.code}: {err_body}")
+        return {"ok": False, "http_error": he.code, "detail": err_body}
     except Exception as e:
         print(f"[Brevo API Error] Failed to send email via Brevo API: {e}")
-    return False
+        return {"ok": False, "error": str(e)}
 
 
 def _send_smtp_email(to_email: str, subject: str, text_body: str, html_body: str, sender_name: str = "HirePulse AI") -> bool:
     # Primary: Brevo HTTPS API
     if os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY"):
-        return _send_brevo_api_email(to_email, subject, html_body, text_body=text_body, sender_name=sender_name)
+        result = _send_brevo_api_email(to_email, subject, html_body, text_body=text_body, sender_name=sender_name)
+        return result.get("ok", False)
 
     # Fallback SMTP if configured
     smtp_email = _get_sender_email()
@@ -89,6 +110,33 @@ def _send_smtp_email(to_email: str, subject: str, text_body: str, html_body: str
         return False
 
 
+def _brevo_api_get(endpoint: str) -> dict:
+    """Helper: make a GET request to Brevo API."""
+    api_key = (os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY") or "").strip()
+    if not api_key:
+        return {"error": "BREVO_API_KEY not set"}
+    try:
+        req = urllib.request.Request(
+            f"https://api.brevo.com/v3/{endpoint}",
+            headers={
+                "api-key": api_key,
+                "Accept": "application/json"
+            },
+            method="GET"
+        )
+        with urllib.request.urlopen(req, timeout=15) as response:
+            return json.loads(response.read().decode("utf-8", errors="replace"))
+    except urllib.error.HTTPError as he:
+        err_body = ""
+        try:
+            err_body = he.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        return {"error": f"HTTP {he.code}", "detail": err_body}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def test_smtp_diagnostic(to_email: str) -> dict:
     brevo_key = (os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY") or "").strip()
     sender_email = _get_sender_email()
@@ -97,17 +145,35 @@ def test_smtp_diagnostic(to_email: str) -> dict:
         "to_email": to_email,
         "sender_email": sender_email,
         "brevo_api_key_set": bool(brevo_key),
-        "brevo_api": None,
-        "success": False
+        "brevo_api_key_prefix": brevo_key[:12] + "..." if brevo_key else None,
     }
 
-    if brevo_key:
-        brevo_ok = _send_brevo_api_email(to_email, "HirePulse Diagnostic Test", "<p>Test email via Brevo HTTPS API from Render</p>", text_body="Test email via Brevo")
-        results["brevo_api"] = "SUCCESS" if brevo_ok else "FAILED"
-        results["success"] = brevo_ok
+    if not brevo_key:
+        results["error"] = "BREVO_API_KEY missing in environment variables"
         return results
 
-    results["error"] = "BREVO_API_KEY missing in environment variables"
+    # 1. Check Brevo account info
+    results["account_info"] = _brevo_api_get("account")
+
+    # 2. Check verified senders
+    results["senders"] = _brevo_api_get("senders")
+
+    # 3. Try sending a test email and capture full response
+    send_result = _send_brevo_api_email(
+        to_email,
+        "HirePulse Diagnostic Test",
+        "<div style='font-family:sans-serif;padding:20px'><h2>Diagnostic Test</h2><p>This is a test email sent from your Render deployment via Brevo API.</p><p>If you see this, email delivery is working!</p></div>",
+        text_body="HirePulse Diagnostic Test - If you see this, Brevo email delivery is working!",
+    )
+    results["send_result"] = send_result
+    results["success"] = send_result.get("ok", False)
+
+    # 4. Check recent transactional events for this email
+    try:
+        results["recent_events"] = _brevo_api_get(f"smtp/statistics/events?limit=5&email={to_email}")
+    except Exception:
+        results["recent_events"] = "could not fetch"
+
     return results
 
 
