@@ -272,6 +272,53 @@ def test_smtp_diagnostic(to_email: str) -> dict:
     return results
 
 
+def get_email_status_diagnostic(to_email: str = None) -> dict:
+    gmail_client_id = os.getenv("GMAIL_CLIENT_ID", "").strip()
+    gmail_client_secret = os.getenv("GMAIL_CLIENT_SECRET", "").strip()
+    gmail_refresh_token = os.getenv("GMAIL_REFRESH_TOKEN", "").strip()
+    brevo_key = (os.getenv("BREVO_API_KEY") or os.getenv("SENDINBLUE_API_KEY") or "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").replace(" ", "").strip()
+
+    gmail_configured = bool(gmail_client_id and gmail_client_secret and gmail_refresh_token)
+    brevo_configured = bool(brevo_key)
+    smtp_configured = bool(smtp_password)
+
+    active_method = "None"
+    if gmail_configured:
+        active_method = "Gmail API (HTTPS)"
+    elif brevo_configured:
+        active_method = "Brevo API (HTTPS - Check Spam folder)"
+    elif smtp_configured:
+        active_method = "Gmail SMTP (Blocked on Render free tier)"
+
+    res = {
+        "active_method": active_method,
+        "env_vars_check": {
+            "GMAIL_CLIENT_ID": f"{gmail_client_id[:12]}..." if gmail_client_id else "NOT SET ❌",
+            "GMAIL_CLIENT_SECRET": "SET ✅" if gmail_client_secret else "NOT SET ❌",
+            "GMAIL_REFRESH_TOKEN": f"{gmail_refresh_token[:10]}..." if gmail_refresh_token else "NOT SET ❌",
+            "BREVO_API_KEY": f"{brevo_key[:10]}..." if brevo_key else "NOT SET ❌",
+            "SMTP_PASSWORD": "SET ✅" if smtp_password else "NOT SET ❌",
+        },
+        "gmail_api_configured": gmail_configured,
+        "brevo_api_configured": brevo_configured,
+    }
+
+    if gmail_configured:
+        token = _get_gmail_access_token()
+        res["gmail_token_generated"] = bool(token)
+        if not token:
+            res["gmail_token_error"] = "Failed to exchange refresh token for access token. Check credentials."
+
+    if to_email:
+        res["test_send_target"] = to_email
+        send_res = _send_smtp_email(to_email, "HirePulse OTP Test", "Your test OTP is 123456", "<div style='font-family:sans-serif;padding:20px'><h2>HirePulse Test</h2><p>Your verification code is <strong>123456</strong>.</p></div>")
+        res["test_send_success"] = send_res
+
+    return res
+
+
+
 def send_email(to_email, keyword, jobs, profile=None):
     jobs_html = ""
     text_body = f"Job Alerts for '{keyword.title()}'\n\n"

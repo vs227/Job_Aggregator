@@ -18,7 +18,7 @@ from models import (
     LoginUser, ForgotPasswordSendOtpInput, ForgotPasswordResetInput,
     JobsInput, SavedJob, AlertPreference, SearchJob, SourceInput, ResumeChatInput
 )
-from alerts import send_otp_email, send_password_reset_otp_email, test_smtp_diagnostic
+from alerts import send_otp_email, send_password_reset_otp_email, test_smtp_diagnostic, get_email_status_diagnostic
 
 import shutil
 import json
@@ -197,6 +197,13 @@ def debug_events(email: str = "vaishnavshinde186@gmail.com", limit: int = 10):
         "email": email,
         "events": _brevo_api_get(f"smtp/statistics/events?limit={limit}&email={email}")
     }
+
+@app.get("/debug/email-status")
+def debug_email_status(to: str = None):
+    """Check active email sending method, environment variables, and optionally send a test OTP email."""
+    return get_email_status_diagnostic(to)
+
+
 
 @app.get("/debug/send-otp-test")
 def debug_send_otp_test(to: str = "vaishnavshinde186@gmail.com"):
